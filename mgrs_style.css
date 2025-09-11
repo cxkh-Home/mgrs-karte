@@ -81,3 +81,17 @@ body, html {
     width: 40px;
     height: 40px;
 }
+
+@media print {
+    /* Ensure the North Arrow is visible and other controls are hidden */
+    .leaflet-control-north {
+        display: block !important;
+    }
+
+    .leaflet-control-zoom,
+    .leaflet-geosearch-bar,
+    .leaflet-control-geosearch,
+    .leaflet-control-easyPrint-button {
+        display: none !important;
+    }
+}

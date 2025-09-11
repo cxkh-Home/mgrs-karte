@@ -65,10 +65,17 @@ function addMgrsGrids() {
         "Topographisch": topoLayer
     };
 
+    const generate100meterGrids = new L.MGRS100Meters({
+        showLabels: false, // Labels at this level are too cluttered
+        showGrids: true,
+        minZoom: 15
+    });
+
     const overlayMaps = {
         "GZD Gitter": generateGZDGrids,
         "100km Gitter": generate100kGrids,
-        "1000m Gitter": generate1000meterGrids
+        "1000m Gitter": generate1000meterGrids,
+        "100m Gitter": generate100meterGrids
     };
 
     L.control.layers(baseMaps, overlayMaps).addTo(map);
@@ -77,6 +84,20 @@ function addMgrsGrids() {
     generateGZDGrids.addTo(map);
     generate100kGrids.addTo(map);
     generate1000meterGrids.addTo(map);
+
+    // --- Search Control ---
+    const search = new GeoSearch.GeoSearchControl({
+        provider: new GeoSearch.OpenStreetMapProvider(),
+        style: 'bar',
+        showMarker: true,
+        marker: {
+            icon: new L.Icon.Default(),
+            draggable: false,
+        },
+        autoClose: true,
+        searchLabel: 'Adresse oder Ort suchen',
+    });
+    map.addControl(search);
 
     // --- Scale Control ---
     L.control.scale({ imperial: false }).addTo(map);
