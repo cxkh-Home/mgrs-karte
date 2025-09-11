@@ -1,0 +1,57 @@
+body, html {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    font-family: sans-serif;
+}
+
+.header {
+    background-color: #333;
+    color: white;
+    padding: 10px 20px;
+    text-align: center;
+}
+
+.header h1 {
+    margin: 0;
+    font-size: 1.5em;
+}
+
+.header a {
+    color: #aef;
+    text-decoration: none;
+    position: absolute;
+    right: 20px;
+    top: 15px;
+}
+
+#map {
+    height: calc(100% - 50px); /* Full height minus header */
+    width: 100%;
+}
+
+/* Styles from L.DumbMGRS.scss */
+.leaflet-grid-label .grid-label-100k {
+    background-color: yellow;
+    font-size: 13px;
+    opacity: 0.6;
+    color: red;
+    position: relative;
+    display: inline;
+    padding: 1.75px;
+    border: 1px black solid;
+    border-radius: 2px;
+}
+
+.leaflet-grid-label .grid-label-1000m {
+    background-color: yellow;
+    font-size: larger;
+    font-weight: bold;
+    opacity: 0.8;
+    color: black;
+    text-align: center;
+    position: relative;
+    display: inline;
+    padding: 5px;
+    border-radius: 50%;
+}
