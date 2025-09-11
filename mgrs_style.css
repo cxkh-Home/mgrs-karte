@@ -55,3 +55,29 @@ body, html {
     padding: 5px;
     border-radius: 50%;
 }
+
+#location-display {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    background-color: rgba(255, 255, 255, 0.7);
+    padding: 5px 10px;
+    border-radius: 5px;
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 12px;
+    z-index: 1000; /* Ensure it's above the map */
+    max-width: 300px;
+}
+
+/* North Arrow Control */
+.leaflet-control-north {
+    background: rgba(255, 255, 255, 0.8);
+    padding: 5px;
+    border-radius: 4px;
+    box-shadow: 0 1px 5px rgba(0,0,0,0.4);
+}
+
+.leaflet-control-north svg {
+    width: 40px;
+    height: 40px;
+}

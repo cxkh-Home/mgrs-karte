@@ -845,6 +845,14 @@ function showResults(lat, lng, inputType = '', nearestAddress = null) {
             </a>
         </div>
 
+        <div class="bg-green-50 border border-green-200 rounded-lg p-3 sm:p-4 hover:shadow-md transition-shadow">
+            <h3 class="font-bold text-green-800 mb-2 text-sm sm:text-base">🎯 Taktische Karte</h3>
+            <a href="mgrs_map.html?lat=${lat}&lng=${lng}" target="_blank"
+               class="block text-green-600 hover:text-green-800 text-sm underline break-all">
+                🗺️ Auf MGRS-Karte anzeigen
+            </a>
+        </div>
+
         <div class="bg-red-50 border border-red-200 rounded-lg p-3 sm:p-4 hover:shadow-md transition-shadow ${mgrsHighlight}">
             <h3 class="font-bold text-red-800 mb-2 text-sm sm:text-base">🌐 MGRS ${inputType === 'MGRS' ? '(Eingabe)' : ''}</h3>
             <div class="coordinate-display text-red-700">${mgrsCoords}</div>
