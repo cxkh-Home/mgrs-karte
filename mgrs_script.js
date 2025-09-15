@@ -8,7 +8,13 @@ const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png
 });
 
 const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-	attribution: 'Tiles &copy; Esri &mdash; Source: Esri, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community'
+	attribution: 'Tiles &copy; Esri'
+});
+
+const hybridLayer = L.tileLayer('http://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z={z}',{
+    maxZoom: 20,
+    subdomains:['mt0','mt1','mt2','mt3'],
+    attribution: 'Kartendaten &copy; Google'
 });
 
 const topoLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
@@ -62,6 +68,7 @@ function addMgrsGrids() {
     const baseMaps = {
         "OpenStreetMap": osmLayer,
         "Satellit": satelliteLayer,
+        "Hybrid": hybridLayer,
         "Topographisch": topoLayer
     };
 
@@ -85,22 +92,235 @@ function addMgrsGrids() {
     generate100kGrids.addTo(map);
     generate1000meterGrids.addTo(map);
 
-    // --- Search Control ---
-    const search = new GeoSearch.GeoSearchControl({
-        provider: new GeoSearch.OpenStreetMapProvider(),
-        style: 'bar',
-        showMarker: true,
-        marker: {
-            icon: new L.Icon.Default(),
-            draggable: false,
-        },
-        autoClose: true,
-        searchLabel: 'Adresse oder Ort suchen',
-    });
-    map.addControl(search);
-
     // --- Scale Control ---
     L.control.scale({ imperial: false }).addTo(map);
+}
+
+// === PROJEKTIONEN INITIALISIEREN ===
+function initProjections() {
+    proj4.defs('EPSG:4326', '+proj=longlat +datum=WGS84 +no_defs');
+    for (let zone = 1; zone <= 60; zone++) {
+        proj4.defs(`EPSG:${32600 + zone}`, `+proj=utm +zone=${zone} +datum=WGS84 +units=m +no_defs`);
+        proj4.defs(`EPSG:${32700 + zone}`, `+proj=utm +zone=${zone} +south +datum=WGS84 +units=m +no_defs`);
+    }
+}
+
+// === EINGABE-ANALYSE ===
+let searchTimeout;
+let detectedFormat = 'unknown';
+
+function analyzeInput() {
+    const value = document.getElementById('universal-input').value.trim();
+    if (!value) {
+        hideSuggestions();
+        return;
+    }
+
+    if (isMGRSFormat(value)) {
+        detectedFormat = 'mgrs';
+    } else if (isGPSFormat(value)) {
+        detectedFormat = 'gps';
+    } else if (isUTMFormat(value)) {
+        detectedFormat = 'utm';
+    } else if (value.length >= 2) {
+        detectedFormat = 'address';
+        clearTimeout(searchTimeout);
+        searchTimeout = setTimeout(() => searchAddresses(value), 300);
+    } else {
+        detectedFormat = 'unknown';
+        hideSuggestions();
+    }
+}
+
+// === SUCHE & UMRECHNUNG ===
+async function performSearch() {
+    const input = document.getElementById('universal-input').value.trim();
+    if (!input) return;
+
+    let lat, lng;
+
+    try {
+        if (detectedFormat === 'gps') {
+            const coords = parseGPSCoordinates(input);
+            if (coords && isValidCoordinates(coords.lat, coords.lng)) {
+                lat = coords.lat;
+                lng = coords.lng;
+            }
+        } else if (detectedFormat === 'utm') {
+            const utm = parseUTMCoordinates(input);
+            if (utm) {
+                const coords = utmToLatLng(utm.zone, utm.easting, utm.northing);
+                lat = coords.lat;
+                lng = coords.lng;
+            }
+        } else if (detectedFormat === 'mgrs') {
+            const latLon = mgrs.toPoint(input);
+            lng = latLon[0];
+            lat = latLon[1];
+        } else if (detectedFormat === 'address') {
+             const firstSuggestion = document.querySelector('.suggestion-item');
+             if(firstSuggestion) {
+                firstSuggestion.click();
+             } else {
+                setTimeout(() => {
+                    if(document.querySelector('.suggestion-item')) return;
+                    alert("Adresse nicht gefunden. Bitte versuchen Sie eine andere Sucheingabe.");
+                }, 500);
+             }
+             return;
+        }
+
+        if (lat !== undefined && lng !== undefined) {
+            if (isValidCoordinates(lat, lng)) {
+                showOnMap(lat, lng);
+                hideSuggestions();
+            } else {
+                alert('Ungültige Koordinaten.');
+            }
+        } else {
+             alert('Format nicht erkannt oder ungültig. Bitte versuchen Sie die Adresssuche.');
+        }
+
+    } catch (error) {
+        alert('Fehler bei der Verarbeitung der Eingabe: ' + error.message);
+    }
+}
+
+async function searchAddresses(query) {
+    if (query.length < 2) return;
+    try {
+        const response = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=5`);
+        const results = await response.json();
+        showSuggestions(results);
+    } catch (error) {
+        console.error('Address search failed:', error);
+        hideSuggestions();
+    }
+}
+
+function showSuggestions(results) {
+    const suggestions = document.getElementById('suggestions');
+    suggestions.innerHTML = '';
+    if (!results || results.length === 0) {
+        hideSuggestions();
+        return;
+    }
+
+    results.forEach(result => {
+        const item = document.createElement('div');
+        item.className = 'suggestion-item';
+        item.textContent = result.display_name;
+        item.onclick = () => selectAddress(result.display_name, parseFloat(result.lat), parseFloat(result.lon));
+        suggestions.appendChild(item);
+    });
+    suggestions.style.display = 'block';
+}
+
+function hideSuggestions() {
+    const suggestions = document.getElementById('suggestions');
+    if (suggestions) {
+        suggestions.innerHTML = '';
+        suggestions.style.display = 'none';
+    }
+}
+
+function selectAddress(address, lat, lng) {
+    document.getElementById('universal-input').value = address;
+    hideSuggestions();
+    showOnMap(lat, lng);
+}
+
+// === FORMAT-ERKENNUNG (von script.js) ===
+function isGPSFormat(value) {
+    const patterns = [
+        /^-?\d+\.?\d*\s*,\s*-?\d+\.?\d*$/,
+        /^-?\d+\.?\d*\s+-?\d+\.?\d*$/,
+        /^-?\d+,\d+\s*[,;]\s*-?\d+,\d+$/,
+        /^lat(?:itude)?:?\s*-?\d+\.?\d*\s*,?\s*lng?(?:ongitude)?:?\s*-?\d+\.?\d*$/i,
+        /^\d+[°]\s*\d+['\s]*\d*\.?\d*["\s]*[NSEW]\s*,?\s*\d+[°]\s*\d+['\s]*\d*\.?\d*["\s]*[NSEW]$/i,
+    ];
+    return patterns.some(pattern => pattern.test(value));
+}
+
+function isMGRSFormat(value) {
+    const pattern = /^\d{1,2}[A-Z]\s+[A-Z]{2}\s+\d{1,5}\s+\d{1,5}$/i;
+    return pattern.test(value);
+}
+
+function isUTMFormat(value) {
+    const patterns = [
+        /^\d{1,2}[A-Z]\s+\d{5,7}\s+\d{6,8}$/i,
+        /^zone:?\s*\d{1,2}[A-Z]\s+\d{5,7}\s+\d{6,8}$/i,
+    ];
+    return patterns.some(pattern => pattern.test(value));
+}
+
+// === KOORDINATEN-PARSING (von script.js) ===
+function parseGPSCoordinates(value) {
+    let normalized = value.trim().replace(/,/g, '.');
+    if (value.includes(',') && !value.includes('.')) {
+         normalized = value.replace(/,/, ' ');
+    }
+     const parts = normalized.split(/[\s.]+/);
+    if (parts.length > 2 && (normalized.match(/\./g) || []).length > 1 ) {
+        normalized = value.replace(',', '.');
+    }
+
+    const decimalPatterns = [
+        /^(-?\d+\.?\d*)\s*(-?\d+\.?\d*)$/,
+        /^(-?\d+\.?\d*)\s+(-?\d+\.?\d*)$/,
+        /^lat(?:itude)?:?\s*(-?\d+\.?\d*)\s*,?\s*lng?(?:ongitude)?:?\s*(-?\d+\.?\d*)$/i,
+    ];
+
+    for (const pattern of decimalPatterns) {
+        const match = normalized.match(pattern);
+        if (match) {
+            let lat = parseFloat(match[1]);
+            let lng = parseFloat(match[2]);
+            if (Math.abs(lat) < 90 && Math.abs(lng) > 90) {
+                [lat, lng] = [lng, lat];
+            }
+            return { lat, lng };
+        }
+    }
+
+    const dmsPattern = /^(\d+)[°]\s*(\d+)['\s]*(\d*\.?\d*)["\s]*([NSEW])\s*,?\s*(\d+)[°]\s*(\d+)['\s]*(\d*\.?\d*)["\s]*([NSEW])$/i;
+    const dmsMatch = value.match(dmsPattern);
+    if (dmsMatch) {
+        let lat = parseInt(dmsMatch[1]) + parseInt(dmsMatch[2])/60 + parseFloat(dmsMatch[3] || 0)/3600;
+        let lng = parseInt(dmsMatch[5]) + parseInt(dmsMatch[6])/60 + parseFloat(dmsMatch[7] || 0)/3600;
+        if (dmsMatch[4].toUpperCase() === 'S') lat = -lat;
+        if (dmsMatch[8].toUpperCase() === 'W') lng = -lng;
+        return { lat, lng };
+    }
+
+    return null;
+}
+
+function parseUTMCoordinates(value) {
+    const match = value.match(/^(\d{1,2})([A-Z])\s+(\d{5,7})\s+(\d{6,8})$/i);
+    if (match) {
+        return {
+            zone: match[1] + match[2].toUpperCase(),
+            easting: parseInt(match[3]),
+            northing: parseInt(match[4])
+        };
+    }
+    return null;
+}
+
+function utmToLatLng(zone, easting, northing) {
+    const zoneNum = parseInt(zone.slice(0, -1));
+    const band = zone.slice(-1);
+    const isNorthern = band >= 'N';
+    const epsgCode = isNorthern ? `EPSG:${32600 + zoneNum}` : `EPSG:${32700 + zoneNum}`;
+    const gpsCoords = proj4(epsgCode, 'EPSG:4326', [easting, northing]);
+    return { lat: gpsCoords[1], lng: gpsCoords[0] };
+}
+
+function isValidCoordinates(lat, lng) {
+    return !isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
+}
 
     // --- North Arrow Control ---
     const north = L.control({ position: "topright" });
@@ -122,9 +342,8 @@ function addMgrsGrids() {
     }).addTo(map);
 }
 
-map.on('click', function(e) {
-    const lat = e.latlng.lat;
-    const lng = e.latlng.lng;
+function showOnMap(lat, lng) {
+    if (!isValidCoordinates(lat, lng)) return;
 
     if (currentMarker) {
         map.removeLayer(currentMarker);
@@ -134,15 +353,12 @@ map.on('click', function(e) {
 
     currentMarker = L.marker([lat, lng]).addTo(map);
     currentMarker.bindPopup(`
-        <div style="text-align: center; padding: 5px;">
-            <h3 style="margin-bottom: 5px; font-size: 16px;">Ausgewählte Position</h3>
-            <div style="font-size: 13px;">
-                <strong>GPS:</strong> ${lat.toFixed(6)}, ${lng.toFixed(6)}<br>
-                <strong>MGRS:</strong> ${mgrsCoords}
-            </div>
-        </div>
+        <strong>GPS:</strong> ${lat.toFixed(6)}, ${lng.toFixed(6)}<br>
+        <strong>MGRS:</strong> ${mgrsCoords}
     `).openPopup();
-});
+
+    map.setView([lat, lng], 15);
+}
 
 function handleUrlParameters() {
     const urlParams = new URLSearchParams(window.location.search);
@@ -177,7 +393,95 @@ function updateLocationDisplay() {
 }
 
 map.on('move', updateLocationDisplay);
+map.on('click', (e) => showOnMap(e.latlng.lat, e.latlng.lng));
 
-addMgrsGrids();
-handleUrlParameters();
-updateLocationDisplay(); // Initial call
+document.addEventListener('DOMContentLoaded', function() {
+    initProjections();
+    addMgrsGrids();
+    handleUrlParameters();
+    updateLocationDisplay();
+
+    // Hide suggestions when clicking outside
+    document.addEventListener('click', function(e) {
+        const container = document.querySelector('.search-container');
+        if (container && !container.contains(e.target)) {
+            hideSuggestions();
+        }
+    });
+
+    // Search on Enter key
+    const input = document.getElementById('universal-input');
+    if (input) {
+        input.addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                performSearch();
+            }
+        });
+    }
+
+    const printButton = document.getElementById('print-button');
+    if (printButton) {
+        printButton.addEventListener('click', printMap);
+    }
+});
+
+// === DRUCKFUNKTION ===
+async function printMap() {
+    const printContainer = document.getElementById('print-container');
+    const mapElement = document.getElementById('map');
+
+    document.body.classList.add('printing');
+
+    try {
+        const canvas = await html2canvas(mapElement, {
+            useCORS: true,
+            logging: false,
+        });
+
+        const mapImageUrl = canvas.toDataURL('image/png');
+
+        let coordsInfo = '';
+        const center = map.getCenter();
+        if (currentMarker) {
+            const markerLatLng = currentMarker.getLatLng();
+            coordsInfo = `<strong>Markierte Position:</strong><br>
+                          GPS: ${markerLatLng.lat.toFixed(6)}, ${markerLatLng.lng.toFixed(6)}<br>
+                          MGRS: ${mgrs.forward([markerLatLng.lng, markerLatLng.lat])}`;
+        } else {
+            coordsInfo = `<strong>Kartenmitte:</strong><br>
+                          GPS: ${center.lat.toFixed(5)}, ${center.lng.toFixed(5)}<br>
+                          MGRS: ${mgrs.forward([center.lng, center.lat], 5)}`;
+        }
+
+        const scaleLabel = document.querySelector('.leaflet-control-scale-line').innerText;
+        const scaleWidth = document.querySelector('.leaflet-control-scale-line').style.width;
+        const northArrowSvg = document.querySelector('.leaflet-control-north').innerHTML;
+
+        printContainer.innerHTML = `
+            <h1>Kartenausdruck</h1>
+            <div class="print-map-wrapper">
+                <img id="print-map-image" src="${mapImageUrl}" />
+                <div id="print-north-arrow">${northArrowSvg}</div>
+                <div id="print-scale-bar" style="width: ${scaleWidth};">${scaleLabel}</div>
+            </div>
+            <div class="print-info">
+                <h2>Informationen</h2>
+                <p>${coordsInfo}</p>
+                <p>Gedruckt am: ${new Date().toLocaleString('de-DE')}</p>
+            </div>
+        `;
+
+        printContainer.style.display = 'block';
+
+        setTimeout(() => {
+            window.print();
+            document.body.classList.remove('printing');
+            printContainer.style.display = 'none';
+        }, 500);
+
+    } catch (error) {
+        console.error('Printing failed:', error);
+        document.body.classList.remove('printing');
+        alert('Fehler beim Erstellen der Druckvorschau.');
+    }
+}
