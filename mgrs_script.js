@@ -313,6 +313,9 @@ document.addEventListener('DOMContentLoaded', function() {
     handleUrlParameters();
     updateLocationDisplay();
 
+    // Fire zoomend once on load to set initial grid visibility
+    map.fire('zoomend');
+
     // Set up UI event listeners
     document.addEventListener('click', function(e) {
         const container = document.querySelector('.search-container');
