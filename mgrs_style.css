@@ -257,24 +257,6 @@ body.printing::after {
     border-radius: 2px;
 }
 
-.leaflet-control-button {
-    background-color: #fff;
-    color: #000;
-    display: block;
-    width: 30px;
-    height: 30px;
-    line-height: 30px;
-    text-align: center;
-    text-decoration: none;
-    font-size: 1.2em;
-    font-weight: bold;
-    cursor: pointer;
-}
-
-.leaflet-control-button:hover {
-    background-color: #f4f4f4;
-}
-
 .leaflet-grid-label .grid-label-1000m {
     background-color: yellow;
     font-size: larger;
