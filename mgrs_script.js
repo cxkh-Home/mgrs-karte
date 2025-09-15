@@ -323,31 +323,6 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // === DRUCKFUNKTION ===
-function waitForLayers(layers, timeout = 10000) {
-    return new Promise((resolve, reject) => {
-        const masterTimeout = setTimeout(() => {
-            reject(new Error(`Layer loading timed out after ${timeout}ms.`));
-        }, timeout);
-
-        const promises = layers.map(layer => {
-            return new Promise(layerResolve => {
-                const eventName = (layer instanceof L.TileLayer) ? 'load' : 'rendercomplete';
-
-                if (layer instanceof L.TileLayer && !layer._loading) {
-                    return layerResolve();
-                }
-
-                layer.once(eventName, () => layerResolve());
-            });
-        });
-
-        Promise.all(promises).then(() => {
-            clearTimeout(masterTimeout);
-            resolve();
-        });
-    });
-}
-
 async function printMap() {
     const printContainer = document.getElementById('print-container');
     const mapElement = document.getElementById('map');
@@ -356,34 +331,15 @@ async function printMap() {
 
     document.body.classList.add('printing', printClass);
 
-    const printableGrids = [
-        overlayMaps["GZD Gitter"],
-        overlayMaps["100km Gitter"],
-        overlayMaps["1000m Gitter"],
-        overlayMaps["100m Gitter"]
-    ];
-    const gridsToAdd = printableGrids.filter(grid => !map.hasLayer(grid));
-
     try {
-        gridsToAdd.forEach(grid => map.addLayer(grid));
-
-        const activeTileLayer = map.hasLayer(topoLayer) ? topoLayer : osmLayer;
-        const layersToWaitFor = [activeTileLayer, ...printableGrids];
-
-        const waitPromise = waitForLayers(layersToWaitFor);
-
+        // Force a redraw of the map and all its current layers
         map.invalidateSize();
-        layersToWaitFor.forEach(layer => {
-            if (layer.getInBoundsGZDs) {
-                layer.getInBoundsGZDs(true);
-            } else if (layer.getVizGrids) {
-                layer.getVizGrids(true);
-            } else if (layer.regenerate) {
-                layer.regenerate(true);
-            }
-        });
+        map.fire('moveend');
 
-        await waitPromise;
+        // Wait for a fixed timeout to allow all layers to render.
+        console.log("Waiting for layers to render...");
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        console.log("Wait finished, generating canvas...");
 
         const canvas = await html2canvas(mapElement, {
             useCORS: true,
@@ -428,7 +384,6 @@ async function printMap() {
         console.error('Printing failed:', error);
         alert('Fehler beim Erstellen der Druckvorschau.');
     } finally {
-        gridsToAdd.forEach(grid => map.removeLayer(grid));
         document.body.classList.remove('printing', printClass);
         printContainer.style.display = 'none';
     }
