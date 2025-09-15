@@ -1,5 +1,6 @@
 let currentMarker;
 let map;
+let editableLayers;
 
 // --- Base Layers ---
 const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -290,7 +291,87 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Set up event listeners that depend on the map
     map.on('move', updateLocationDisplay);
-    map.on('click', (e) => showOnMap(e.latlng.lat, e.latlng.lng));
+    // Remove the old click handler to avoid conflict with drawing tools
+    // map.on('click', (e) => showOnMap(e.latlng.lat, e.latlng.lng));
+
+    // Initialize Geoman Drawing Tools
+    editableLayers = new L.FeatureGroup();
+    map.addLayer(editableLayers);
+
+    map.pm.addControls({
+        position: 'topleft',
+        drawCircle: false,
+        drawCircleMarker: false,
+    });
+
+    map.on('pm:create', (e) => {
+        editableLayers.addLayer(e.layer);
+    });
+
+    // Custom Controls for Import/Export/Text
+    const customToolbar = L.Control.extend({
+        options: {
+            position: 'topleft'
+        },
+        onAdd: function () {
+            const container = L.DomUtil.create('div', 'leaflet-bar leaflet-control');
+
+            // Add Text Button
+            const textButton = L.DomUtil.create('a', 'leaflet-control-button', container);
+            textButton.innerHTML = 'T';
+            textButton.title = 'Add Text';
+            L.DomEvent.on(textButton, 'click', () => {
+                map.pm.enableDraw('Text', {
+                    snappable: true,
+                    snapDistance: 20,
+                });
+            });
+
+            // Import Button
+            const importButton = L.DomUtil.create('a', 'leaflet-control-button', container);
+            importButton.innerHTML = '&#x2191;'; // Up arrow
+            importButton.title = 'Import GPX/KML';
+            L.DomEvent.on(importButton, 'click', () => {
+                document.getElementById('file-input').click();
+            });
+
+            // Export GeoJSON Button
+            const exportButton = L.DomUtil.create('a', 'leaflet-control-button', container);
+            exportButton.innerHTML = '&#x2913;'; // Down arrow to bar
+            exportButton.title = 'Export GeoJSON';
+            L.DomEvent.on(exportButton, 'click', exportGeoJSON);
+
+            // Save Image Button
+            const imageButton = L.DomUtil.create('a', 'leaflet-control-button', container);
+            imageButton.innerHTML = '&#x1F4BE;'; // Floppy disk
+            imageButton.title = 'Save as Image';
+            L.DomEvent.on(imageButton, 'click', saveAsImage);
+
+            return container;
+        }
+    });
+    map.addControl(new customToolbar());
+
+    // Hidden file input for the import button
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.id = 'file-input';
+    fileInput.accept = '.gpx, .kml';
+    fileInput.style.display = 'none';
+    document.body.appendChild(fileInput);
+    fileInput.addEventListener('change', function(e) {
+        if (e.target.files.length === 0) return;
+        const file = e.target.files[0];
+        const reader = new FileReader();
+        reader.onload = function(event) {
+            const content = event.target.result;
+            const customLayer = omnivore.run.parse(content);
+            customLayer.eachLayer(layer => editableLayers.addLayer(layer));
+            map.fitBounds(customLayer.getBounds());
+        };
+        reader.readAsText(file);
+    });
+
 
     // Initialize other components
     initProjections();
@@ -320,7 +401,98 @@ document.addEventListener('DOMContentLoaded', function() {
     if (printButton) {
         printButton.addEventListener('click', printMap);
     }
+
+    const exportGeoJSONButton = document.getElementById('export-geojson-button');
+    if (exportGeoJSONButton) {
+        exportGeoJSONButton.addEventListener('click', exportGeoJSON);
+    }
+
+    const saveImageButton = document.getElementById('save-image-button');
+    if (saveImageButton) {
+        saveImageButton.addEventListener('click', saveAsImage);
+    }
+
+    const addTextButton = document.getElementById('add-text-button');
+    if (addTextButton) {
+        addTextButton.addEventListener('click', () => {
+            // Enter text-adding mode
+            L.DomUtil.addClass(map._container, 'crosshair-cursor');
+            map.once('click', (e) => {
+                const text = prompt("Enter annotation text:");
+                if (text) {
+                    const textIcon = L.divIcon({
+                        className: 'text-annotation',
+                        html: `<div>${text}</div>`,
+                        iconSize: [150, 20]
+                    });
+                    const textMarker = L.marker(e.latlng, { icon: textIcon });
+                    editableLayers.addLayer(textMarker);
+                }
+                L.DomUtil.removeClass(map._container, 'crosshair-cursor');
+            });
+        });
+    }
+
+    const fileInput = document.getElementById('file-input');
+    if (fileInput) {
+        fileInput.addEventListener('change', function(e) {
+            if (e.target.files.length === 0) {
+                return;
+            }
+            const file = e.target.files[0];
+            const reader = new FileReader();
+            reader.onload = function(event) {
+                const content = event.target.result;
+                // Use omnivore to parse and add to map
+                const customLayer = omnivore.run.parse(content);
+                // Add to the editable layers group so it can be exported/deleted
+                customLayer.eachLayer(layer => editableLayers.addLayer(layer));
+                map.fitBounds(customLayer.getBounds());
+            };
+            reader.readAsText(file);
+        });
+    }
 });
+
+// === EXPORTFUNKTIONEN ===
+function exportGeoJSON() {
+    const data = editableLayers.toGeoJSON();
+    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'lagekarte.geojson';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+async function saveAsImage() {
+    // Temporarily hide controls for a clean screenshot
+    document.querySelector('.leaflet-control-container').style.display = 'none';
+
+    try {
+        const canvas = await html2canvas(document.getElementById('map'), {
+            useCORS: true,
+            logging: false,
+            scale: 3,
+        });
+        const a = document.createElement('a');
+        a.href = canvas.toDataURL('image/png');
+        a.download = 'lagekarte.png';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+    } catch (error) {
+        console.error('Image export failed:', error);
+        alert('Fehler beim Speichern des Bildes.');
+    } finally {
+        // Always show the controls again
+        document.querySelector('.leaflet-control-container').style.display = '';
+    }
+}
+
 
 // === DRUCKFUNKTION ===
 async function printMap() {
