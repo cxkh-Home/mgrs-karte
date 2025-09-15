@@ -1,5 +1,6 @@
 let currentMarker;
 let map;
+let editableLayers;
 
 // --- Base Layers ---
 const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -14,8 +15,6 @@ const topoLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png'
 // As mentioned in a previous step, the MGRS100K and MGRS1000Meters classes
 // have a dependency on a global 'generateGZDGrids' variable. I will define it here.
 let generateGZDGrids;
-let generate100meterGrids;
-let overlayMaps;
 
 // Add MGRS Grids
 function addMgrsGrids() {
@@ -59,7 +58,7 @@ function addMgrsGrids() {
         "Topographisch": topoLayer
     };
 
-    generate100meterGrids = new L.MGRS100Meters({
+    const generate100meterGrids = new L.MGRS100Meters({
         showLabels: false, // Labels at this level are too cluttered
         showGrids: true,
         minZoom: 15,
@@ -70,7 +69,7 @@ function addMgrsGrids() {
         },
     });
 
-    overlayMaps = {
+    const overlayMaps = {
         "GZD Gitter": generateGZDGrids,
         "100km Gitter": generate100kGrids,
         "1000m Gitter": generate1000meterGrids,
@@ -83,7 +82,6 @@ function addMgrsGrids() {
     generateGZDGrids.addTo(map);
     generate100kGrids.addTo(map);
     generate1000meterGrids.addTo(map);
-    // 100m grid is not added by default
 
     // --- Scale Control ---
     L.control.scale({ imperial: false }).addTo(map);
@@ -291,7 +289,23 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Set up event listeners that depend on the map
     map.on('move', updateLocationDisplay);
-    map.on('click', (e) => showOnMap(e.latlng.lat, e.latlng.lng));
+    // map.on('click', (e) => showOnMap(e.latlng.lat, e.latlng.lng)); // Disable to allow drawing
+
+    // Initialize Geoman Drawing Tools
+    editableLayers = new L.FeatureGroup();
+    map.addLayer(editableLayers);
+
+    // Note: Measurement tools are enabled by default in Geoman
+    map.pm.addControls({
+        position: 'topleft',
+        drawCircle: false, // Circle drawing is not required for this use case
+        drawCircleMarker: false,
+    });
+
+    // Add drawn layers to our feature group
+    map.on('pm:create', (e) => {
+        editableLayers.addLayer(e.layer);
+    });
 
     // Initialize other components
     initProjections();
@@ -324,76 +338,31 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // === DRUCKFUNKTION ===
-function waitForLayers(layers, timeout = 10000) {
-    return new Promise((resolve, reject) => {
-        const masterTimeout = setTimeout(() => {
-            reject(new Error(`Layer loading timed out after ${timeout}ms.`));
-        }, timeout);
-
-        const promises = layers.map(layer => {
-            return new Promise(layerResolve => {
-                const eventName = (layer instanceof L.TileLayer) ? 'load' : 'rendercomplete';
-
-                if (layer instanceof L.TileLayer && !layer._loading) {
-                    return layerResolve();
-                }
-
-                layer.once(eventName, () => layerResolve());
-            });
-        });
-
-        Promise.all(promises).then(() => {
-            clearTimeout(masterTimeout);
-            resolve();
-        });
-    });
-}
-
 async function printMap() {
     const printContainer = document.getElementById('print-container');
     const mapElement = document.getElementById('map');
-    const paperSize = document.getElementById('paper-size-select').value;
-    const printClass = `print-${paperSize}`;
 
-    document.body.classList.add('printing', printClass);
+    document.body.classList.add('printing');
 
     try {
-        const layersToWaitFor = [];
-        map.eachLayer(layer => {
-            if (layer instanceof L.TileLayer || layer instanceof L.LayerGroup) {
-                layersToWaitFor.push(layer);
-            }
-        });
-
-        const waitPromise = waitForLayers(layersToWaitFor);
-
-        map.invalidateSize();
-        layersToWaitFor.forEach(layer => {
-            if (layer.getInBoundsGZDs) {
-                layer.getInBoundsGZDs(true);
-            } else if (layer.getVizGrids) {
-                layer.getVizGrids(true);
-            } else if (layer.regenerate) {
-                layer.regenerate(true);
-            }
-        });
-
-        await waitPromise;
-
         const canvas = await html2canvas(mapElement, {
             useCORS: true,
             logging: false,
-            scale: 3,
         });
+
         const mapImageUrl = canvas.toDataURL('image/png');
 
         let coordsInfo = '';
         const center = map.getCenter();
         if (currentMarker) {
             const markerLatLng = currentMarker.getLatLng();
-            coordsInfo = `<strong>Markierte Position:</strong><br>GPS: ${markerLatLng.lat.toFixed(6)}, ${markerLatLng.lng.toFixed(6)}<br>MGRS: ${mgrs.forward([markerLatLng.lng, markerLatLng.lat])}`;
+            coordsInfo = `<strong>Markierte Position:</strong><br>
+                          GPS: ${markerLatLng.lat.toFixed(6)}, ${markerLatLng.lng.toFixed(6)}<br>
+                          MGRS: ${mgrs.forward([markerLatLng.lng, markerLatLng.lat])}`;
         } else {
-            coordsInfo = `<strong>Kartenmitte:</strong><br>GPS: ${center.lat.toFixed(5)}, ${center.lng.toFixed(5)}<br>MGRS: ${mgrs.forward([center.lng, center.lat], 5)}`;
+            coordsInfo = `<strong>Kartenmitte:</strong><br>
+                          GPS: ${center.lat.toFixed(5)}, ${center.lng.toFixed(5)}<br>
+                          MGRS: ${mgrs.forward([center.lng, center.lat], 5)}`;
         }
 
         const scaleLabel = document.querySelector('.leaflet-control-scale-line').innerText;
@@ -401,29 +370,30 @@ async function printMap() {
         const northArrowSvg = document.querySelector('.leaflet-control-north').innerHTML;
 
         printContainer.innerHTML = `
+            <h1>Kartenausdruck</h1>
             <div class="print-map-wrapper">
                 <img id="print-map-image" src="${mapImageUrl}" />
                 <div id="print-north-arrow">${northArrowSvg}</div>
-                <div id="print-scale-bar" style="width: ${scaleWidth};">
-                    <div class="scale-bar-segment"></div><div class="scale-bar-segment"></div>
-                    <div class="scale-bar-label">${scaleLabel}</div>
-                </div>
+                <div id="print-scale-bar" style="width: ${scaleWidth};">${scaleLabel}</div>
             </div>
-            <div class="print-footer">
-                <div class="print-info"><p>${coordsInfo}</p><p>Gedruckt am: ${new Date().toLocaleString('de-DE')}</p></div>
-            </div>`;
+            <div class="print-info">
+                <h2>Informationen</h2>
+                <p>${coordsInfo}</p>
+                <p>Gedruckt am: ${new Date().toLocaleString('de-DE')}</p>
+            </div>
+        `;
 
         printContainer.style.display = 'block';
 
         setTimeout(() => {
             window.print();
+            document.body.classList.remove('printing');
+            printContainer.style.display = 'none';
         }, 500);
 
     } catch (error) {
         console.error('Printing failed:', error);
+        document.body.classList.remove('printing');
         alert('Fehler beim Erstellen der Druckvorschau.');
-    } finally {
-        document.body.classList.remove('printing', printClass);
-        printContainer.style.display = 'none';
     }
 }
