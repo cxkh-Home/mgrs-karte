@@ -775,13 +775,13 @@ const GZD = L.LayerGroup.extend({
   },
 
   // Find all the Grid Zone Designators that are in your view
-  getInBoundsGZDs() {
+  getInBoundsGZDs(force = false) {
     // Clear every grid off the map
     this.clearLayers();
     const currentZoom = this._map.getZoom();
 
     // Do not create GZDs if the map is zoomed out at 4 or below
-    if ((currentZoom >= this.options.minZoom) && (currentZoom <= this.options.maxZoom)) {
+    if (force || ((currentZoom >= this.options.minZoom) && (currentZoom <= this.options.maxZoom))) {
       // Combined the northingDict and eastingDict into one object
       const combinedObj = { ...this.northObj, ...this.eastObj };
       // Create an array to store the inBounds values for letter,top, and bottom
@@ -1036,11 +1036,11 @@ const MGRS100K = L.LayerGroup.extend({
     this.getVizGrids();
   },
 
-  getVizGrids() {
+  getVizGrids(force = false) {
     // Clear every grid off the map
     this.clearLayers();
     const currentZoom = this._map.getZoom();
-    if ((currentZoom >= this.options.minZoom) && (currentZoom <= this.options.maxZoom)) {
+    if (force || ((currentZoom >= this.options.minZoom) && (currentZoom <= this.options.maxZoom))) {
       // empty the arrays so we can redraw the grids
       this.empty = [];
       this.eastingArray = [];
@@ -1639,12 +1639,354 @@ const MGRS100K = L.LayerGroup.extend({
 
 
 // *********************************************************************************** //
+// * Leaflet.DumbMGRS - Base Class for Meter Grids                                   * //
+// *********************************************************************************** //
+const GridLayer = L.LayerGroup.extend({
+  options: {
+    showLabels: false,
+    showGrids: true,
+    redraw: 'move',
+    maxZoom: 18,
+    minZoom: 12,
+  },
+
+  initialize(options) {
+    this.splitGZD = false;
+    this.direction = undefined;
+    L.LayerGroup.prototype.initialize.call(this);
+    L.Util.setOptions(this, options);
+  },
+
+  onAdd(map) {
+    this._map = map;
+    this.regenerate();
+    this._map.on(`viewreset ${this.options.redraw} moveend`, this.regenerate, this);
+  },
+
+  onRemove(map) {
+    map.off(`viewreset ${this.options.redraw} moveend`, this.regenerate, this);
+    this.clearLayers();
+  },
+
+  hideGrids() {
+    this.options.showGrids = false;
+    this.regenerate();
+  },
+
+  hideLabels() {
+    this.options.showLabels = false;
+    this.regenerate();
+  },
+
+  showGrids() {
+    this.options.showGrids = true;
+    this.regenerate();
+  },
+
+  showLabels() {
+    this.options.showLabels = true;
+    this.regenerate();
+  },
+
+  regenerate(force = false) {
+    this.clearLayers();
+    const currentZoom = this._map.getZoom();
+
+    if (force || ((currentZoom >= this.options.minZoom) && (currentZoom <= this.options.maxZoom))) {
+      this._bounds = this._map.getBounds().pad(this.getPadding());
+      this.clearLayers();
+      this.empty = [];
+
+      generateGZDGrids.viz.forEach((visibleGrid) => {
+        this.empty.push(visibleGrid);
+      });
+
+      if (this.empty.length <= 1) {
+        this.generateGrids(this.splitGZD = false);
+      } else {
+        switch (this.empty.length) {
+          case 4:
+            this.generateGrids(this.splitGZD = true, this.direction = 'left');
+            this.generateGrids(this.splitGZD = true, this.direction = 'right');
+            break;
+          case 3:
+            break;
+          case 2:
+            if (this.empty[0].right === this.empty[1].left) {
+              this.generateGrids(this.splitGZD = true, this.direction = 'left');
+              this.generateGrids(this.splitGZD = true, this.direction = 'right');
+            } else {
+              this.generateGrids(this.splitGZD = false);
+            }
+            break;
+          default:
+            break;
+        }
+      }
+    }
+    this.fire('rendercomplete');
+    return this;
+  },
+
+  getMinimumBounds() {
+    let nw;
+    let west;
+    switch (this.direction) {
+      case undefined: {
+        west = this.empty[0].left < this._bounds.getWest() ? this._bounds.getWest() : this.empty[0].left + 0.00001;
+        nw = LLtoUTM({ lat: this._bounds.getNorth(), lon: west });
+        break;
+      }
+      case 'left': {
+        west = this.empty[0].left < this._bounds.getWest() ? this._bounds.getWest() : this.empty[0].left + 0.00001;
+        nw = LLtoUTM({ lat: this._bounds.getNorth(), lon: west });
+        break;
+      }
+      case 'right': {
+        nw = LLtoUTM({ lat: this._bounds.getNorth(), lon: this.empty[1].left + 0.00001 });
+        break;
+      }
+      default: {
+        break;
+      }
+    }
+
+    return {
+      easting: Math.floor(nw.easting / this.options.gridInterval) * this.options.gridInterval,
+      northing: Math.floor(nw.northing / this.options.gridInterval) * this.options.gridInterval,
+      zoneNumber: nw.zoneNumber,
+      zoneLetter: nw.zoneLetter,
+    };
+  },
+
+  getLineCounts() {
+    let east;
+    let west;
+    switch (this.direction) {
+      case undefined: {
+        east = this.empty[0].right > this._bounds.getEast() ? this._bounds.getEast() : this.empty[0].right - 0.00001;
+        west = this.empty[0].left < this._bounds.getWest() ? this._bounds.getWest() : this.empty[0].left + 0.00001;
+        break;
+      }
+      case 'left': {
+        east = this.empty[0].right - 0.00001;
+        west = this._bounds.getWest();
+        break;
+      }
+      case 'right': {
+        east = this._bounds.getEast();
+        west = this.empty[1].left + 0.00001;
+        break;
+      }
+      default: {
+        break;
+      }
+    }
+
+    const nw = LLtoUTM({ lat: this._bounds.getNorth(), lon: west });
+    const ne = LLtoUTM({ lat: this._bounds.getNorth(), lon: east });
+    const sw = LLtoUTM({ lat: this._bounds.getSouth(), lon: west });
+    return {
+      easting: Math.ceil((ne.easting - nw.easting) / this.options.gridInterval),
+      northing: Math.ceil((nw.northing - sw.northing) / this.options.gridInterval),
+    };
+  },
+
+  generateGrids(splitGZD = false, direction = undefined) {
+    this.splitGZD = splitGZD;
+    this.direction = direction;
+
+    if (!this.options.showGrids) {
+      return;
+    }
+
+    const minimumBounds = this.getMinimumBounds();
+    const gridCounts = this.getLineCounts();
+    const gridLines = [];
+    const gridLabels = [];
+
+    for (let i = 0; i <= gridCounts.easting + 1; i += 1) {
+      const adjustedEasting = minimumBounds.easting + (this.options.gridInterval * i);
+      const { northing } = minimumBounds;
+      const northLine = UTMtoLL({
+        northing,
+        easting: adjustedEasting,
+        zoneNumber: minimumBounds.zoneNumber,
+        zoneLetter: minimumBounds.zoneLetter,
+      });
+      const southLine = UTMtoLL({
+        northing: northing - (gridCounts.northing * this.options.gridInterval),
+        easting: adjustedEasting,
+        zoneNumber: minimumBounds.zoneNumber,
+        zoneLetter: minimumBounds.zoneLetter,
+      });
+      const labelCoords = UTMtoLL({
+        northing: LLtoUTM({ lat: this._map.getBounds().getSouth(), lon: southLine.lon }).northing,
+        easting: adjustedEasting,
+        zoneNumber: minimumBounds.zoneNumber,
+        zoneLetter: minimumBounds.zoneLetter,
+      });
+      const eastingLine = new L.Polyline([southLine, northLine], this.options.lineStyle);
+      const slope = (southLine.lat - northLine.lat) / (southLine.lon - northLine.lon);
+
+      switch (this.direction) {
+        case undefined:
+          if (this.options.showLabels) {
+            gridLabels.push(this.generateEastingLabel(labelCoords, adjustedEasting.toString().slice(1, -3)));
+          }
+          break;
+        case 'left':
+          if (northLine.lon >= this.empty[0].right) {
+            const newLatLeft = southLine.lat + (slope * (this.empty[0].right - southLine.lon));
+            eastingLine.setLatLngs([southLine, { lat: newLatLeft || southLine.lat, lng: this.empty[0].right - 0.00001 }]);
+          }
+          if (labelCoords.lon <= this.empty[0].right && this.options.showLabels) {
+            gridLabels.push(this.generateEastingLabel(labelCoords, adjustedEasting.toString().slice(1, -3)));
+          }
+          break;
+        case 'right':
+          if (northLine.lon <= this.empty[1].left) {
+            const newLatRight = southLine.lat + (slope * (this.empty[1].left - southLine.lon));
+            eastingLine.setLatLngs([southLine, { lat: newLatRight, lng: this.empty[1].left + 0.00001 }]);
+          }
+          if (labelCoords.lon >= this.empty[1].left && this.options.showLabels) {
+            gridLabels.push(this.generateEastingLabel(labelCoords, adjustedEasting.toString().slice(1, -3)));
+          }
+          break;
+        default:
+          break;
+      }
+      gridLines.push(eastingLine);
+    }
+
+    for (let i = 0; i <= gridCounts.northing; i += 1) {
+      const { easting } = minimumBounds;
+      const adjustedNorthing = minimumBounds.northing - (this.options.gridInterval * i);
+      let endEastingLineForNorthings;
+      let beginEastingLineForNorthings;
+      const northernHemisphereBounds = this._map.getCenter().lat <= 0 ? this._bounds.getNorth() : this._bounds.getSouth();
+
+      switch (this.direction) {
+        case undefined: {
+          beginEastingLineForNorthings = easting;
+          endEastingLineForNorthings = easting + (gridCounts.easting * this.options.gridInterval);
+          break;
+        }
+        case 'left': {
+          beginEastingLineForNorthings = easting;
+          endEastingLineForNorthings = LLtoUTM({ lat: northernHemisphereBounds, lon: this.empty[0].right - 0.00001 }).easting;
+          break;
+        }
+        case 'right': {
+          beginEastingLineForNorthings = LLtoUTM({ lat: northernHemisphereBounds, lon: this.empty[1].left + 0.00001 }).easting;
+          endEastingLineForNorthings = easting + (gridCounts.easting * this.options.gridInterval);
+          break;
+        }
+        default: {
+          break;
+        }
+      }
+
+      const westLine = UTMtoLL({
+        northing: adjustedNorthing,
+        easting: beginEastingLineForNorthings,
+        zoneNumber: minimumBounds.zoneNumber,
+        zoneLetter: minimumBounds.zoneLetter,
+      });
+      const eastLine = UTMtoLL({
+        northing: adjustedNorthing,
+        easting: endEastingLineForNorthings,
+        zoneNumber: minimumBounds.zoneNumber,
+        zoneLetter: minimumBounds.zoneLetter,
+      });
+      const labelCoords = UTMtoLL({
+        northing: adjustedNorthing,
+        easting: LLtoUTM({ lat: westLine.lat, lon: this._map.getBounds().getWest() }).easting,
+        zoneNumber: minimumBounds.zoneNumber,
+        zoneLetter: minimumBounds.zoneLetter,
+      });
+      const northingLine = new L.Polyline([westLine, eastLine], this.options.lineStyle);
+
+      switch (this.direction) {
+        case undefined:
+          if (this.options.showLabels) {
+            gridLabels.push(this.generateNorthingLabel(labelCoords, adjustedNorthing.toString().slice(2, -3)));
+          }
+          break;
+        case 'left':
+          northingLine.setLatLngs([westLine, { lat: eastLine.lat, lng: this.empty[0].right - 0.00001 }]);
+          if (this.options.showLabels) {
+            gridLabels.push(this.generateNorthingLabel(labelCoords, adjustedNorthing.toString().slice(2, -3)));
+          }
+          break;
+        case 'right':
+          northingLine.setLatLngs([eastLine, { lat: westLine.lat, lng: this.empty[1].left }]);
+          break;
+        default:
+          break;
+      }
+      gridLines.push(northingLine);
+    }
+
+    gridLines.forEach(this.addLayer, this);
+    gridLabels.forEach(this.addLayer, this);
+  },
+
+  generateEastingLabel(pos, label) {
+    const bounds = this._map.getBounds().pad(-0.001);
+    return new L.Marker({ lat: bounds.getSouth(), lng: pos.lon }, {
+      interactive: false,
+      icon: new L.DivIcon({
+        iconAnchor: [11, 22],
+        className: 'leaflet-grid-label',
+        html: `<div class="grid-label-1000m" style="${this.options.gridLetterStyle}">${label}</div>`,
+      }),
+    });
+  },
+
+  generateNorthingLabel(pos, label) {
+    const bounds = this._map.getBounds().pad(-0.001);
+    return new L.Marker({ lat: pos.lat, lng: bounds.getWest() }, {
+      interactive: false,
+      icon: new L.DivIcon({
+        iconAnchor: [0, 8],
+        className: 'leaflet-grid-label',
+        html: `<div class="grid-label-1000m" style="${this.options.gridLetterStyle}">${label}</div>`,
+      }),
+    });
+  },
+
+  getPadding() {
+    const zoom = this._map.getZoom();
+    if (zoom >= this.options.maxZoom) {
+      return 4;
+    }
+    switch (zoom) {
+      case 17:
+        return 1.5;
+      case 16:
+        return 0.75;
+      case 15:
+        return 0.4;
+      case 14:
+        return 0.18;
+      case 13:
+        return 0.1;
+      case 12:
+        return 0.04;
+      default:
+        break;
+    }
+    return this;
+  },
+});
+
+// *********************************************************************************** //
 // * Leaflet.DumbMGRS - 1000 Meter Grids                                             * //
 // *********************************************************************************** //
-// TODO: Rename this.empty to something descriptive.
-// TODO: This plugin will get messed up on the southern hemisphere
-const MGRS1000Meters = L.LayerGroup.extend({
+const MGRS1000Meters = GridLayer.extend({
   options: {
+    gridInterval: 1000,
     showLabels: false,
     showGrids: false,
     redraw: 'move',
@@ -1656,7 +1998,7 @@ const MGRS1000Meters = L.LayerGroup.extend({
       weight: 1,
       opacity: 0.5,
       interactive: false,
-      clickable: false, // legacy support
+      clickable: false,
       fill: false,
       noClip: true,
       smoothFactor: 4,
@@ -1664,391 +2006,14 @@ const MGRS1000Meters = L.LayerGroup.extend({
       lineJoin: 'miter-clip',
     },
   },
-
-  initialize(options) {
-    // Set class options (no need for user to edit this)
-    this.gridInterval = 1000;
-    this.splitGZD = false;
-    this.direction = undefined;
-    // Call the parent's constructor from the child (like using super()) by accessing the parent class prototype
-    L.LayerGroup.prototype.initialize.call(this);
-    // Merge the provided options with the default options of the class.
-    L.Util.setOptions(this, options);
-  },
-
-  onAdd(map) {
-    this._map = map;
-    this.regenerate();
-    this._map.on(`viewreset ${this.options.redraw} moveend`, this.regenerate, this);
-  },
-
-  onRemove(map) {
-    map.off(`viewreset ${this.options.redraw} moveend`, this.regenerate, this);
-    this.clearLayers();
-  },
-
-  hideGrids() {
-    this.options.showGrids = false;
-    this.regenerate();
-  },
-
-  hideLabels() {
-    this.options.showLabels = false;
-    this.regenerate();
-  },
-
-  showGrids() {
-    this.options.showGrids = true;
-    this.regenerate();
-  },
-
-  showLabels() {
-    this.options.showLabels = true;
-    this.regenerate();
-  },
-
-  regenerate() {
-    this.clearLayers();
-    const currentZoom = this._map.getZoom();
-
-    if ((currentZoom >= this.options.minZoom) && (currentZoom <= this.options.maxZoom)) {
-      this._bounds = this._map.getBounds().pad(this.getPaddingOnZoomLevel1000Meters());
-      this.clearLayers();
-      this.empty = [];
-
-      if (currentZoom >= this.options.minZoom && currentZoom <= this.options.maxZoom) {
-        // Call the GZD class and get the visible grid zone designators on the map
-        //! This is dependent on you class constructor variable name. Not smart
-        generateGZDGrids.viz.forEach((visibleGrid) => {
-          // This will tell us what grid squares are visible on the map
-          this.empty.push(visibleGrid);
-        });
-
-        if (this.empty.length <= 1) {
-          // If there is no other GZD visible on the map, then just run it
-          this.generateGrids(this.splitGZD = false);
-        } else {
-          // Since we are only checking if the split grid is a easting line (vertical), this will also check if the splitGZD is a northing line (horizontal)
-          //! Issues with this on special grid zones (Norway and Svalbard)
-          switch (this.empty.length) {
-            case 4:
-              // If there are 4 GZDs visible on screen, run both directions
-              this.generateGrids(this.splitGZD = true, this.direction = 'left');
-              this.generateGrids(this.splitGZD = true, this.direction = 'right');
-              break;
-            case 3:
-              break;
-            case 2:
-              if (this.empty[0].right === this.empty[1].left) {
-                // If the GZDs are splitting the screen vertically, run both directions
-                this.generateGrids(this.splitGZD = true, this.direction = 'left');
-                this.generateGrids(this.splitGZD = true, this.direction = 'right');
-              } else {
-                // If the GZDs are splitting the screen horizontally, run one direction
-                this.generateGrids(this.splitGZD = false);
-              }
-              break;
-            case 1:
-              break;
-            case 0:
-              break;
-            default:
-              break;
-          }
-        }
-      }
-    }
-    this.fire('rendercomplete');
-    return this;
-  },
-  // Gets the minimum easting and northing of each 1000 meter grid line
-  getMinimumBounds() {
-    let nw;
-    let west;
-    switch (this.direction) {
-      case undefined: {
-        // Prevents the grids from "shifting" when the bounds are near a western GZD
-        west = this.empty[0].left < this._bounds.getWest() ? this._bounds.getWest() : this.empty[0].left + 0.00001;
-        nw = LLtoUTM({ lat: this._bounds.getNorth(), lon: west });
-        break;
-      }
-      case 'left': {
-        west = this.empty[0].left < this._bounds.getWest() ? this._bounds.getWest() : this.empty[0].left + 0.00001;
-        nw = LLtoUTM({ lat: this._bounds.getNorth(), lon: west });
-        break;
-      }
-      case 'right': {
-        nw = LLtoUTM({ lat: this._bounds.getNorth(), lon: this.empty[1].left + 0.00001 });
-        break;
-      }
-      default: {
-        break;
-      }
-    }
-
-    return {
-      // rounds up to nearest multiple of x
-      easting: Math.floor(nw.easting / this.gridInterval) * this.gridInterval,
-      northing: Math.floor(nw.northing / this.gridInterval) * this.gridInterval,
-      zoneNumber: nw.zoneNumber,
-      zoneLetter: nw.zoneLetter,
-    };
-  },
-
-  // Gets the number of easting and northing lines we need to draw on the map
-  getLineCounts() {
-    let east;
-    let west;
-    switch (this.direction) {
-      case undefined: {
-        // This will fix a bug where the GZD boundary is barely out of view
-        // it adjusts the value so it grabs the furthest east/west boundary without going outside of the GZD
-        east = this.empty[0].right > this._bounds.getEast() ? this._bounds.getEast() : this.empty[0].right - 0.00001;
-        west = this.empty[0].left < this._bounds.getWest() ? this._bounds.getWest() : this.empty[0].left + 0.00001;
-        break;
-      }
-      case 'left': {
-        east = this.empty[0].right - 0.00001;
-        west = this._bounds.getWest();
-        break;
-      }
-      case 'right': {
-        east = this._bounds.getEast();
-        west = this.empty[1].left + 0.00001;
-        break;
-      }
-      default: {
-        break;
-      }
-    }
-
-    const nw = LLtoUTM({ lat: this._bounds.getNorth(), lon: west });
-    const ne = LLtoUTM({ lat: this._bounds.getNorth(), lon: east });
-    const sw = LLtoUTM({ lat: this._bounds.getSouth(), lon: west });
-    return {
-      easting: Math.ceil((ne.easting - nw.easting) / this.gridInterval),
-      northing: Math.ceil((nw.northing - sw.northing) / this.gridInterval),
-    };
-  },
-
-  // Where the magic happens
-  generateGrids(splitGZD = false, direction = undefined) {
-    this.splitGZD = splitGZD;
-    this.direction = direction;
-
-    // Do not run this function if the grids hidden open is enabled
-    if (!this.options.showGrids) {
-      return;
-    }
-
-    const minimumBounds = this.getMinimumBounds();
-    const gridCounts = this.getLineCounts();
-    const gridLines = [];
-    const gridLabels = [];
-
-    //* * Easting Lines **//
-    // Adding +1 on gridCounts.easting to fix error with connecting grid lines not showing up
-    for (let i = 0; i <= gridCounts.easting + 1; i += 1) {
-      const adjustedEasting = minimumBounds.easting + (this.gridInterval * i);
-      const { northing } = minimumBounds;
-
-      const northLine = UTMtoLL({
-        northing,
-        easting: adjustedEasting,
-        zoneNumber: minimumBounds.zoneNumber,
-        zoneLetter: minimumBounds.zoneLetter,
-      });
-
-      const southLine = UTMtoLL({
-        northing: northing - (gridCounts.northing * this.gridInterval),
-        easting: adjustedEasting,
-        zoneNumber: minimumBounds.zoneNumber,
-        zoneLetter: minimumBounds.zoneLetter,
-      });
-
-      const labelCoords = UTMtoLL({
-        northing: LLtoUTM({ lat: this._map.getBounds().getSouth(), lon: southLine.lon }).northing,
-        easting: adjustedEasting,
-        zoneNumber: minimumBounds.zoneNumber,
-        zoneLetter: minimumBounds.zoneLetter,
-      });
-
-      const eastingLine = new L.Polyline([southLine, northLine], this.options.lineStyle);
-
-      // Slope is some funky math I copied from https://github.com/trailbehind/leaflet-grids
-      // Used for any grid line that converges to the GZD boundaries
-      const slope = (southLine.lat - northLine.lat) / (southLine.lon - northLine.lon);
-
-      // This will ensure that the northing lines do not go past their GZD boundaries
-      switch (this.direction) {
-        case undefined:
-          if (this.options.showLabels) {
-            gridLabels.push(this.generateEastingLabel(labelCoords, adjustedEasting.toString().slice(1, -3)));
-          }
-          break;
-        case 'left':
-          if (northLine.lon >= this.empty[0].right) {
-            const newLatLeft = southLine.lat + (slope * (this.empty[0].right - southLine.lon));
-            eastingLine.setLatLngs([southLine, { lat: newLatLeft || southLine.lat, lng: this.empty[0].right - 0.00001 }]);
-          }
-          if (labelCoords.lon <= this.empty[0].right && this.options.showLabels) {
-            gridLabels.push(this.generateEastingLabel(labelCoords, adjustedEasting.toString().slice(1, -3)));
-          }
-          break;
-        case 'right':
-          if (northLine.lon <= this.empty[1].left) {
-            const newLatRight = southLine.lat + (slope * (this.empty[1].left - southLine.lon));
-            eastingLine.setLatLngs([southLine, { lat: newLatRight, lng: this.empty[1].left + 0.00001 }]);
-          }
-          if (labelCoords.lon >= this.empty[1].left && this.options.showLabels) {
-            gridLabels.push(this.generateEastingLabel(labelCoords, adjustedEasting.toString().slice(1, -3)));
-          }
-          break;
-        default:
-          break;
-      }
-      gridLines.push(eastingLine);
-    }
-
-    //* * Northing Lines **//
-    for (let i = 0; i <= gridCounts.northing; i += 1) {
-      const { easting } = minimumBounds;
-      const adjustedNorthing = minimumBounds.northing - (this.gridInterval * i);
-
-      let endEastingLineForNorthings;
-      let beginEastingLineForNorthings;
-      // If we need to get the northern bounds and we are in the southern hemisphere, grab the north, else grab the south
-      const northernHemisphereBounds = this._map.getCenter().lat <= 0 ? this._bounds.getNorth() : this._bounds.getSouth();
-
-      switch (this.direction) {
-        case undefined: {
-          beginEastingLineForNorthings = easting;
-          endEastingLineForNorthings = easting + (gridCounts.easting * this.gridInterval);
-          break;
-        }
-        case 'left': {
-          beginEastingLineForNorthings = easting;
-          endEastingLineForNorthings = LLtoUTM({ lat: northernHemisphereBounds, lon: this.empty[0].right - 0.00001 }).easting;
-          break;
-        }
-        case 'right': {
-          beginEastingLineForNorthings = LLtoUTM({ lat: northernHemisphereBounds, lon: this.empty[1].left + 0.00001 }).easting;
-          endEastingLineForNorthings = easting + (gridCounts.easting * this.gridInterval);
-          break;
-        }
-        default: {
-          break;
-        }
-      }
-
-      const westLine = UTMtoLL({
-        northing: adjustedNorthing,
-        easting: beginEastingLineForNorthings,
-        zoneNumber: minimumBounds.zoneNumber,
-        zoneLetter: minimumBounds.zoneLetter,
-      });
-
-      const eastLine = UTMtoLL({
-        northing: adjustedNorthing,
-        easting: endEastingLineForNorthings,
-        zoneNumber: minimumBounds.zoneNumber,
-        zoneLetter: minimumBounds.zoneLetter,
-      });
-
-      // These coordinates are the absolute western edge of the visible map
-      const labelCoords = UTMtoLL({
-        northing: adjustedNorthing,
-        easting: LLtoUTM({ lat: westLine.lat, lon: this._map.getBounds().getWest() }).easting,
-        zoneNumber: minimumBounds.zoneNumber,
-        zoneLetter: minimumBounds.zoneLetter,
-      });
-
-      const northingLine = new L.Polyline([westLine, eastLine], this.options.lineStyle);
-
-      // This will ensure that the northing lines do not go past their GZD boundaries
-      switch (this.direction) {
-        case undefined:
-        // Putting the grid label options in the switch statement prevents them from duplicating if split GZDs are on screen
-          if (this.options.showLabels) {
-          // If adjustedNorthing is 4871000, then slice the first 2 chars off and then remove the last 3 to get "71" as your label
-            gridLabels.push(this.generateNorthingLabel(labelCoords, adjustedNorthing.toString().slice(2, -3)));
-          }
-          break;
-        case 'left':
-          northingLine.setLatLngs([westLine, { lat: eastLine.lat, lng: this.empty[0].right - 0.00001 }]);
-          if (this.options.showLabels) {
-            gridLabels.push(this.generateNorthingLabel(labelCoords, adjustedNorthing.toString().slice(2, -3)));
-          }
-          break;
-        case 'right':
-          northingLine.setLatLngs([eastLine, { lat: westLine.lat, lng: this.empty[1].left }]);
-          break;
-        default:
-          break;
-      }
-
-      gridLines.push(northingLine);
-    }
-
-    gridLines.forEach(this.addLayer, this);
-    gridLabels.forEach(this.addLayer, this);
-  },
-
-  generateEastingLabel(pos, label) {
-    const bounds = this._map.getBounds().pad(-0.001);
-    return new L.Marker({ lat: bounds.getSouth(), lng: pos.lon }, {
-      interactive: false,
-      icon: new L.DivIcon({
-        iconAnchor: [11, 22],
-        className: 'leaflet-grid-label',
-        html: `<div class="grid-label-1000m" style="${this.options.gridLetterStyle}">${label}</div>`,
-      }),
-    });
-  },
-
-  generateNorthingLabel(pos, label) {
-    const bounds = this._map.getBounds().pad(-0.001);
-    return new L.Marker({ lat: pos.lat, lng: bounds.getWest() }, {
-      interactive: false,
-      icon: new L.DivIcon({
-        iconAnchor: [0, 8],
-        className: 'leaflet-grid-label',
-        html: `<div class="grid-label-1000m" style="${this.options.gridLetterStyle}">${label}</div>`,
-      }),
-    });
-  },
-
-  getPaddingOnZoomLevel1000Meters() {
-    const zoom = this._map.getZoom();
-    if (zoom >= this.options.maxZoom) {
-      return 4;
-    }
-    switch (zoom) {
-      case 17:
-        return 1.5;
-      case 16:
-        return 0.75;
-      case 15:
-        return 0.4;
-      case 14:
-        return 0.18;
-      case 13:
-        return 0.1;
-      case 12:
-        return 0.04;
-      default:
-        break;
-    }
-    return this;
-  },
 });
 
-
 // *********************************************************************************** //
-// * Leaflet.DumbMGRS - 100 Meter Grids                                             * //
+// * Leaflet.DumbMGRS - 100 Meter Grids                                              * //
 // *********************************************************************************** //
-const MGRS100Meters = L.LayerGroup.extend({
+const MGRS100Meters = GridLayer.extend({
   options: {
+    gridInterval: 100,
     showLabels: false,
     showGrids: true,
     redraw: 'move',
@@ -2060,390 +2025,13 @@ const MGRS100Meters = L.LayerGroup.extend({
       weight: 1,
       opacity: 0.5,
       interactive: false,
-      clickable: false, // legacy support
+      clickable: false,
       fill: false,
       noClip: true,
       smoothFactor: 4,
       lineCap: 'butt',
       lineJoin: 'miter-clip',
     },
-  },
-
-  initialize(options) {
-    // Set class options (no need for user to edit this)
-    this.gridInterval = 100;
-    this.splitGZD = false;
-    this.direction = undefined;
-    // Call the parent's constructor from the child (like using super()) by accessing the parent class prototype
-    L.LayerGroup.prototype.initialize.call(this);
-    // Merge the provided options with the default options of the class.
-    L.Util.setOptions(this, options);
-  },
-
-  onAdd(map) {
-    this._map = map;
-    this.regenerate();
-    this._map.on(`viewreset ${this.options.redraw} moveend`, this.regenerate, this);
-  },
-
-  onRemove(map) {
-    map.off(`viewreset ${this.options.redraw} moveend`, this.regenerate, this);
-    this.clearLayers();
-  },
-
-  hideGrids() {
-    this.options.showGrids = false;
-    this.regenerate();
-  },
-
-  hideLabels() {
-    this.options.showLabels = false;
-    this.regenerate();
-  },
-
-  showGrids() {
-    this.options.showGrids = true;
-    this.regenerate();
-  },
-
-  showLabels() {
-    this.options.showLabels = true;
-    this.regenerate();
-  },
-
-  regenerate() {
-    this.clearLayers();
-    const currentZoom = this._map.getZoom();
-
-    if ((currentZoom >= this.options.minZoom) && (currentZoom <= this.options.maxZoom)) {
-      this._bounds = this._map.getBounds().pad(this.getPaddingOnZoomLevel1000Meters());
-      this.clearLayers();
-      this.empty = [];
-
-      if (currentZoom >= this.options.minZoom && currentZoom <= this.options.maxZoom) {
-        // Call the GZD class and get the visible grid zone designators on the map
-        //! This is dependent on you class constructor variable name. Not smart
-        generateGZDGrids.viz.forEach((visibleGrid) => {
-          // This will tell us what grid squares are visible on the map
-          this.empty.push(visibleGrid);
-        });
-
-        if (this.empty.length <= 1) {
-          // If there is no other GZD visible on the map, then just run it
-          this.generateGrids(this.splitGZD = false);
-        } else {
-          // Since we are only checking if the split grid is a easting line (vertical), this will also check if the splitGZD is a northing line (horizontal)
-          //! Issues with this on special grid zones (Norway and Svalbard)
-          switch (this.empty.length) {
-            case 4:
-              // If there are 4 GZDs visible on screen, run both directions
-              this.generateGrids(this.splitGZD = true, this.direction = 'left');
-              this.generateGrids(this.splitGZD = true, this.direction = 'right');
-              break;
-            case 3:
-              break;
-            case 2:
-              if (this.empty[0].right === this.empty[1].left) {
-                // If the GZDs are splitting the screen vertically, run both directions
-                this.generateGrids(this.splitGZD = true, this.direction = 'left');
-                this.generateGrids(this.splitGZD = true, this.direction = 'right');
-              } else {
-                // If the GZDs are splitting the screen horizontally, run one direction
-                this.generateGrids(this.splitGZD = false);
-              }
-              break;
-            case 1:
-              break;
-            case 0:
-              break;
-            default:
-              break;
-          }
-        }
-      }
-    }
-    this.fire('rendercomplete');
-    return this;
-  },
-  // Gets the minimum easting and northing of each 1000 meter grid line
-  getMinimumBounds() {
-    let nw;
-    let west;
-    switch (this.direction) {
-      case undefined: {
-        // Prevents the grids from "shifting" when the bounds are near a western GZD
-        west = this.empty[0].left < this._bounds.getWest() ? this._bounds.getWest() : this.empty[0].left + 0.00001;
-        nw = LLtoUTM({ lat: this._bounds.getNorth(), lon: west });
-        break;
-      }
-      case 'left': {
-        west = this.empty[0].left < this._bounds.getWest() ? this._bounds.getWest() : this.empty[0].left + 0.00001;
-        nw = LLtoUTM({ lat: this._bounds.getNorth(), lon: west });
-        break;
-      }
-      case 'right': {
-        nw = LLtoUTM({ lat: this._bounds.getNorth(), lon: this.empty[1].left + 0.00001 });
-        break;
-      }
-      default: {
-        break;
-      }
-    }
-
-    return {
-      // rounds up to nearest multiple of x
-      easting: Math.floor(nw.easting / this.gridInterval) * this.gridInterval,
-      northing: Math.floor(nw.northing / this.gridInterval) * this.gridInterval,
-      zoneNumber: nw.zoneNumber,
-      zoneLetter: nw.zoneLetter,
-    };
-  },
-
-  // Gets the number of easting and northing lines we need to draw on the map
-  getLineCounts() {
-    let east;
-    let west;
-    switch (this.direction) {
-      case undefined: {
-        // This will fix a bug where the GZD boundary is barely out of view
-        // it adjusts the value so it grabs the furthest east/west boundary without going outside of the GZD
-        east = this.empty[0].right > this._bounds.getEast() ? this._bounds.getEast() : this.empty[0].right - 0.00001;
-        west = this.empty[0].left < this._bounds.getWest() ? this._bounds.getWest() : this.empty[0].left + 0.00001;
-        break;
-      }
-      case 'left': {
-        east = this.empty[0].right - 0.00001;
-        west = this._bounds.getWest();
-        break;
-      }
-      case 'right': {
-        east = this._bounds.getEast();
-        west = this.empty[1].left + 0.00001;
-        break;
-      }
-      default: {
-        break;
-      }
-    }
-
-    const nw = LLtoUTM({ lat: this._bounds.getNorth(), lon: west });
-    const ne = LLtoUTM({ lat: this._bounds.getNorth(), lon: east });
-    const sw = LLtoUTM({ lat: this._bounds.getSouth(), lon: west });
-    return {
-      easting: Math.ceil((ne.easting - nw.easting) / this.gridInterval),
-      northing: Math.ceil((nw.northing - sw.northing) / this.gridInterval),
-    };
-  },
-
-  // Where the magic happens
-  generateGrids(splitGZD = false, direction = undefined) {
-    this.splitGZD = splitGZD;
-    this.direction = direction;
-
-    // Do not run this function if the grids hidden open is enabled
-    if (!this.options.showGrids) {
-      return;
-    }
-
-    const minimumBounds = this.getMinimumBounds();
-    const gridCounts = this.getLineCounts();
-    const gridLines = [];
-    const gridLabels = [];
-
-    //* * Easting Lines **//
-    // Adding +1 on gridCounts.easting to fix error with connecting grid lines not showing up
-    for (let i = 0; i <= gridCounts.easting + 1; i += 1) {
-      const adjustedEasting = minimumBounds.easting + (this.gridInterval * i);
-      const { northing } = minimumBounds;
-
-      const northLine = UTMtoLL({
-        northing,
-        easting: adjustedEasting,
-        zoneNumber: minimumBounds.zoneNumber,
-        zoneLetter: minimumBounds.zoneLetter,
-      });
-
-      const southLine = UTMtoLL({
-        northing: northing - (gridCounts.northing * this.gridInterval),
-        easting: adjustedEasting,
-        zoneNumber: minimumBounds.zoneNumber,
-        zoneLetter: minimumBounds.zoneLetter,
-      });
-
-      const labelCoords = UTMtoLL({
-        northing: LLtoUTM({ lat: this._map.getBounds().getSouth(), lon: southLine.lon }).northing,
-        easting: adjustedEasting,
-        zoneNumber: minimumBounds.zoneNumber,
-        zoneLetter: minimumBounds.zoneLetter,
-      });
-
-      const eastingLine = new L.Polyline([southLine, northLine], this.options.lineStyle);
-
-      // Slope is some funky math I copied from https://github.com/trailbehind/leaflet-grids
-      // Used for any grid line that converges to the GZD boundaries
-      const slope = (southLine.lat - northLine.lat) / (southLine.lon - northLine.lon);
-
-      // This will ensure that the northing lines do not go past their GZD boundaries
-      switch (this.direction) {
-        case undefined:
-          if (this.options.showLabels) {
-            gridLabels.push(this.generateEastingLabel(labelCoords, adjustedEasting.toString().slice(1, -3)));
-          }
-          break;
-        case 'left':
-          if (northLine.lon >= this.empty[0].right) {
-            const newLatLeft = southLine.lat + (slope * (this.empty[0].right - southLine.lon));
-            eastingLine.setLatLngs([southLine, { lat: newLatLeft || southLine.lat, lng: this.empty[0].right - 0.00001 }]);
-          }
-          if (labelCoords.lon <= this.empty[0].right && this.options.showLabels) {
-            gridLabels.push(this.generateEastingLabel(labelCoords, adjustedEasting.toString().slice(1, -3)));
-          }
-          break;
-        case 'right':
-          if (northLine.lon <= this.empty[1].left) {
-            const newLatRight = southLine.lat + (slope * (this.empty[1].left - southLine.lon));
-            eastingLine.setLatLngs([southLine, { lat: newLatRight, lng: this.empty[1].left + 0.00001 }]);
-          }
-          if (labelCoords.lon >= this.empty[1].left && this.options.showLabels) {
-            gridLabels.push(this.generateEastingLabel(labelCoords, adjustedEasting.toString().slice(1, -3)));
-          }
-          break;
-        default:
-          break;
-      }
-      gridLines.push(eastingLine);
-    }
-
-    //* * Northing Lines **//
-    for (let i = 0; i <= gridCounts.northing; i += 1) {
-      const { easting } = minimumBounds;
-      const adjustedNorthing = minimumBounds.northing - (this.gridInterval * i);
-
-      let endEastingLineForNorthings;
-      let beginEastingLineForNorthings;
-      // If we need to get the northern bounds and we are in the southern hemisphere, grab the north, else grab the south
-      const northernHemisphereBounds = this._map.getCenter().lat <= 0 ? this._bounds.getNorth() : this._bounds.getSouth();
-
-      switch (this.direction) {
-        case undefined: {
-          beginEastingLineForNorthings = easting;
-          endEastingLineForNorthings = easting + (gridCounts.easting * this.gridInterval);
-          break;
-        }
-        case 'left': {
-          beginEastingLineForNorthings = easting;
-          endEastingLineForNorthings = LLtoUTM({ lat: northernHemisphereBounds, lon: this.empty[0].right - 0.00001 }).easting;
-          break;
-        }
-        case 'right': {
-          beginEastingLineForNorthings = LLtoUTM({ lat: northernHemisphereBounds, lon: this.empty[1].left + 0.00001 }).easting;
-          endEastingLineForNorthings = easting + (gridCounts.easting * this.gridInterval);
-          break;
-        }
-        default: {
-          break;
-        }
-      }
-
-      const westLine = UTMtoLL({
-        northing: adjustedNorthing,
-        easting: beginEastingLineForNorthings,
-        zoneNumber: minimumBounds.zoneNumber,
-        zoneLetter: minimumBounds.zoneLetter,
-      });
-
-      const eastLine = UTMtoLL({
-        northing: adjustedNorthing,
-        easting: endEastingLineForNorthings,
-        zoneNumber: minimumBounds.zoneNumber,
-        zoneLetter: minimumBounds.zoneLetter,
-      });
-
-      // These coordinates are the absolute western edge of the visible map
-      const labelCoords = UTMtoLL({
-        northing: adjustedNorthing,
-        easting: LLtoUTM({ lat: westLine.lat, lon: this._map.getBounds().getWest() }).easting,
-        zoneNumber: minimumBounds.zoneNumber,
-        zoneLetter: minimumBounds.zoneLetter,
-      });
-
-      const northingLine = new L.Polyline([westLine, eastLine], this.options.lineStyle);
-
-      // This will ensure that the northing lines do not go past their GZD boundaries
-      switch (this.direction) {
-        case undefined:
-        // Putting the grid label options in the switch statement prevents them from duplicating if split GZDs are on screen
-          if (this.options.showLabels) {
-          // If adjustedNorthing is 4871000, then slice the first 2 chars off and then remove the last 3 to get "71" as your label
-            gridLabels.push(this.generateNorthingLabel(labelCoords, adjustedNorthing.toString().slice(2, -3)));
-          }
-          break;
-        case 'left':
-          northingLine.setLatLngs([westLine, { lat: eastLine.lat, lng: this.empty[0].right - 0.00001 }]);
-          if (this.options.showLabels) {
-            gridLabels.push(this.generateNorthingLabel(labelCoords, adjustedNorthing.toString().slice(2, -3)));
-          }
-          break;
-        case 'right':
-          northingLine.setLatLngs([eastLine, { lat: westLine.lat, lng: this.empty[1].left }]);
-          break;
-        default:
-          break;
-      }
-
-      gridLines.push(northingLine);
-    }
-
-    gridLines.forEach(this.addLayer, this);
-    gridLabels.forEach(this.addLayer, this);
-  },
-
-  generateEastingLabel(pos, label) {
-    const bounds = this._map.getBounds().pad(-0.001);
-    return new L.Marker({ lat: bounds.getSouth(), lng: pos.lon }, {
-      interactive: false,
-      icon: new L.DivIcon({
-        iconAnchor: [11, 22],
-        className: 'leaflet-grid-label',
-        html: `<div class="grid-label-1000m" style="${this.options.gridLetterStyle}">${label}</div>`,
-      }),
-    });
-  },
-
-  generateNorthingLabel(pos, label) {
-    const bounds = this._map.getBounds().pad(-0.001);
-    return new L.Marker({ lat: pos.lat, lng: bounds.getWest() }, {
-      interactive: false,
-      icon: new L.DivIcon({
-        iconAnchor: [0, 8],
-        className: 'leaflet-grid-label',
-        html: `<div class="grid-label-1000m" style="${this.options.gridLetterStyle}">${label}</div>`,
-      }),
-    });
-  },
-
-  getPaddingOnZoomLevel1000Meters() {
-    const zoom = this._map.getZoom();
-    if (zoom >= this.options.maxZoom) {
-      return 4;
-    }
-    switch (zoom) {
-      case 17:
-        return 1.5;
-      case 16:
-        return 0.75;
-      case 15:
-        return 0.4;
-      case 14:
-        return 0.18;
-      case 13:
-        return 0.1;
-      case 12:
-        return 0.04;
-      default:
-        break;
-    }
-    return this;
   },
 });
 
@@ -2452,6 +2040,7 @@ const MGRS100Meters = L.LayerGroup.extend({
 // *********************************************************************************** //
 L.GZD = GZD;
 L.MGRS100K = MGRS100K;
+L.GridLayer = GridLayer;
 L.MGRS1000Meters = MGRS1000Meters;
 L.MGRS100Meters = MGRS100Meters;
 

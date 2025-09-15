@@ -373,9 +373,17 @@ function waitForLayers(layers, timeout = 10000) {
             resolve();
         });
 
-        // Force all layers to redraw to ensure they fire their events.
+        // Force all layers to redraw with the new 'force' flag.
         map.invalidateSize();
-        map.fire('moveend');
+        layers.forEach(layer => {
+            if (layer.getInBoundsGZDs) {
+                layer.getInBoundsGZDs(true);
+            } else if (layer.getVizGrids) {
+                layer.getVizGrids(true);
+            } else if (layer.regenerate) {
+                layer.regenerate(true);
+            }
+        });
     });
 }
 
