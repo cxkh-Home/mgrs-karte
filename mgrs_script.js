@@ -22,9 +22,9 @@ function addMgrsGrids() {
         showLabels: true,
         showGrids: true,
         lineStyle: {
-            color: 'red',
-            weight: 3,
-            opacity: 0.5,
+            color: 'black',
+            weight: 2,
+            opacity: 1,
         },
     });
 
@@ -34,8 +34,8 @@ function addMgrsGrids() {
         showGrids: true,
         lineStyle: {
             color: 'black',
-            weight: 2,
-            opacity: 0.5,
+            weight: 1,
+            opacity: 1,
         },
     });
 
@@ -46,8 +46,8 @@ function addMgrsGrids() {
         minZoom: 12, // Only show at higher zoom levels
         lineStyle: {
             color: 'black',
-            weight: 1,
-            opacity: 0.5,
+            weight: 0.5,
+            opacity: 1,
         },
     });
 
@@ -60,7 +60,12 @@ function addMgrsGrids() {
     const generate100meterGrids = new L.MGRS100Meters({
         showLabels: false, // Labels at this level are too cluttered
         showGrids: true,
-        minZoom: 15
+        minZoom: 15,
+        lineStyle: {
+            color: 'black',
+            weight: 0.5,
+            opacity: 1,
+        },
     });
 
     const overlayMaps = {

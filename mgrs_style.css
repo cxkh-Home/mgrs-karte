@@ -3,6 +3,13 @@ body, html {
     padding: 0;
     height: 100%;
     font-family: sans-serif;
+    display: flex;
+    flex-direction: column;
+}
+
+#map {
+    flex-grow: 1;
+    width: 100%;
 }
 
 .header {
@@ -163,11 +170,6 @@ body.printing::after {
     border-radius: 8px;
     z-index: 2000;
     font-size: 1.2em;
-}
-
-#map {
-    height: calc(100% - 50px); /* Full height minus header */
-    width: 100%;
 }
 
 /* Styles from L.DumbMGRS.scss */
