@@ -14,6 +14,8 @@ const topoLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png'
 // As mentioned in a previous step, the MGRS100K and MGRS1000Meters classes
 // have a dependency on a global 'generateGZDGrids' variable. I will define it here.
 let generateGZDGrids;
+let generate100meterGrids;
+let overlayMaps;
 
 // Add MGRS Grids
 function addMgrsGrids() {
@@ -57,7 +59,7 @@ function addMgrsGrids() {
         "Topographisch": topoLayer
     };
 
-    const generate100meterGrids = new L.MGRS100Meters({
+    generate100meterGrids = new L.MGRS100Meters({
         showLabels: false, // Labels at this level are too cluttered
         showGrids: true,
         minZoom: 15,
@@ -68,7 +70,7 @@ function addMgrsGrids() {
         },
     });
 
-    const overlayMaps = {
+    overlayMaps = {
         "GZD Gitter": generateGZDGrids,
         "100km Gitter": generate100kGrids,
         "1000m Gitter": generate1000meterGrids,
@@ -324,80 +326,65 @@ document.addEventListener('DOMContentLoaded', function() {
 async function printMap() {
     const printContainer = document.getElementById('print-container');
     const mapElement = document.getElementById('map');
+    const paperSize = document.getElementById('paper-size-select').value;
+    const printClass = `print-${paperSize}`;
 
-    // Show a "preparing print" message
-    document.body.classList.add('printing');
+    document.body.classList.add('printing', printClass);
 
     try {
+        // Force a redraw of the map and all its current layers
+        map.invalidateSize();
+        map.fire('moveend');
+
+        // Wait for a fixed timeout to allow all layers to render.
+        console.log("Waiting for layers to render...");
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        console.log("Wait finished, generating canvas...");
+
         const canvas = await html2canvas(mapElement, {
             useCORS: true,
             logging: false,
+            scale: 3,
         });
-
         const mapImageUrl = canvas.toDataURL('image/png');
 
         let coordsInfo = '';
         const center = map.getCenter();
         if (currentMarker) {
             const markerLatLng = currentMarker.getLatLng();
-            coordsInfo = `<strong>Markierte Position:</strong>
-                          GPS: ${markerLatLng.lat.toFixed(6)}, ${markerLatLng.lng.toFixed(6)}<br>
-                          MGRS: ${mgrs.forward([markerLatLng.lng, markerLatLng.lat])}`;
+            coordsInfo = `<strong>Markierte Position:</strong><br>GPS: ${markerLatLng.lat.toFixed(6)}, ${markerLatLng.lng.toFixed(6)}<br>MGRS: ${mgrs.forward([markerLatLng.lng, markerLatLng.lat])}`;
         } else {
-            coordsInfo = `<strong>Kartenmitte:</strong>
-                          GPS: ${center.lat.toFixed(5)}, ${center.lng.toFixed(5)}<br>
-                          MGRS: ${mgrs.forward([center.lng, center.lat], 5)}`;
+            coordsInfo = `<strong>Kartenmitte:</strong><br>GPS: ${center.lat.toFixed(5)}, ${center.lng.toFixed(5)}<br>MGRS: ${mgrs.forward([center.lng, center.lat], 5)}`;
         }
 
         const scaleLabel = document.querySelector('.leaflet-control-scale-line').innerText;
         const scaleWidth = document.querySelector('.leaflet-control-scale-line').style.width;
         const northArrowSvg = document.querySelector('.leaflet-control-north').innerHTML;
 
-        // Construct the new print layout
         printContainer.innerHTML = `
-            <div class="print-header">
-                <div class="print-header-left">
-                    <p>UTM WGS 84</p>
-                    <p>Freizeitkarte DEU</p>
-                </div>
-                <div class="print-title">
-                    Suchplanung
-                </div>
-                <div class="print-header-right">
-
-                </div>
-            </div>
-
             <div class="print-map-wrapper">
                 <img id="print-map-image" src="${mapImageUrl}" />
                 <div id="print-north-arrow">${northArrowSvg}</div>
-                <div id="print-scale-bar" style="width: ${scaleWidth};">${scaleLabel}</div>
+                <div id="print-scale-bar" style="width: ${scaleWidth};">
+                    <div class="scale-bar-segment"></div><div class="scale-bar-segment"></div>
+                    <div class="scale-bar-label">${scaleLabel}</div>
+                </div>
             </div>
-
             <div class="print-footer">
-                <div class="print-info">
-                    <p>${coordsInfo}</p>
-                    <p>Gedruckt am: ${new Date().toLocaleString('de-DE')}</p>
-                </div>
-                <div class="print-logo">
-                    GARMIN
-                </div>
-            </div>
-        `;
+                <div class="print-info"><p>${coordsInfo}</p><p>Gedruckt am: ${new Date().toLocaleString('de-DE')}</p></div>
+            </div>`;
 
         printContainer.style.display = 'block';
 
-        // Wait a bit for the content to render before printing
         setTimeout(() => {
             window.print();
-            // Clean up after printing
-            document.body.classList.remove('printing');
-            printContainer.style.display = 'none';
         }, 500);
 
     } catch (error) {
         console.error('Printing failed:', error);
-        document.body.classList.remove('printing'); // Ensure cleanup on error
         alert('Fehler beim Erstellen der Druckvorschau.');
+    } finally {
+        document.body.classList.remove('printing', printClass);
+        printContainer.style.display = 'none';
     }
 }

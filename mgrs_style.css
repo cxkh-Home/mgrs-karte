@@ -94,10 +94,27 @@ body, html {
     background-color: #45a049;
 }
 
+#paper-size-select {
+    padding: 8px 12px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    background-color: white;
+    font-size: 14px;
+}
+
 @media print {
-    @page {
-        size: A4 portrait;
-        margin: 1cm;
+    body.print-a4 {
+        @page {
+            size: A4 portrait;
+            margin: 1cm;
+        }
+    }
+
+    body.print-a3 {
+        @page {
+            size: A3 portrait;
+            margin: 1cm;
+        }
     }
 
     body, html {
@@ -119,32 +136,17 @@ body, html {
         width: 100%;
         box-sizing: border-box;
     }
+
+    /* Hide the loading overlay when printing */
+    body.printing::after {
+        display: none !important;
+    }
 }
 
 #print-container {
     font-family: Arial, sans-serif;
     color: #333;
     display: none; /* Hidden by default, shown by JS */
-}
-
-.print-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: 10px;
-    flex-shrink: 0;
-}
-
-.print-header-left p {
-    margin: 0;
-    font-size: 10px;
-}
-
-.print-title {
-    font-size: 24px;
-    font-weight: bold;
-    text-align: center;
-    flex-grow: 1;
 }
 
 .print-map-wrapper {
@@ -179,18 +181,46 @@ body, html {
 
 #print-scale-bar {
     position: absolute;
-    bottom: 15px;
+    bottom: 20px;
     left: 50%;
     transform: translateX(-50%);
-    background: rgba(255, 255, 255, 0.8);
-    padding: 3px 8px;
-    border: 1px solid #333;
+    background: rgba(255, 255, 255, 0.75);
+    border: 1px solid black;
+    border-top: none; /* We'll use segments to create the top line */
+    display: flex;
+    height: 10px; /* Height of the main bar */
+    padding: 0;
+}
+
+.scale-bar-segment {
+    flex-grow: 1;
+    border-top: 2px solid black;
+    border-right: 1px solid black;
+}
+
+.scale-bar-segment:nth-child(odd) {
+    background-color: black;
+}
+
+.scale-bar-segment:last-of-type {
+    border-right: none;
+}
+
+.scale-bar-label {
+    position: absolute;
+    top: -18px; /* Position label above the bar */
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 12px;
+    font-weight: bold;
+    color: black;
 }
 
 .print-footer {
     display: flex;
-    justify-content: space-between;
-    align-items: flex-end;
+    justify-content: center; /* Center the info block */
+    align-items: center;
+    text-align: center;
     margin-top: 10px;
     font-size: 9px;
     flex-shrink: 0;
@@ -198,12 +228,6 @@ body, html {
 
 .print-info p {
     margin: 0 0 2px 0;
-}
-
-.print-logo {
-    font-weight: bold;
-    font-size: 22px;
-    color: #007CC3; /* A Garmin-like blue */
 }
 
 body.printing::after {
