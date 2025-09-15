@@ -332,6 +332,7 @@ async function printMap() {
         const canvas = await html2canvas(mapElement, {
             useCORS: true,
             logging: false,
+            scale: 2, // Render at 2x resolution
         });
 
         const mapImageUrl = canvas.toDataURL('image/png');
@@ -356,31 +357,25 @@ async function printMap() {
         // Construct the new print layout
         printContainer.innerHTML = `
             <div class="print-header">
-                <div class="print-header-left">
-                    <p>UTM WGS 84</p>
-                    <p>Freizeitkarte DEU</p>
-                </div>
                 <div class="print-title">
                     Suchplanung
-                </div>
-                <div class="print-header-right">
-
                 </div>
             </div>
 
             <div class="print-map-wrapper">
                 <img id="print-map-image" src="${mapImageUrl}" />
                 <div id="print-north-arrow">${northArrowSvg}</div>
-                <div id="print-scale-bar" style="width: ${scaleWidth};">${scaleLabel}</div>
+                <div id="print-scale-bar" style="width: ${scaleWidth};">
+                    <div class="scale-bar-segment"></div>
+                    <div class="scale-bar-segment"></div>
+                    <div class="scale-bar-label">${scaleLabel}</div>
+                </div>
             </div>
 
             <div class="print-footer">
                 <div class="print-info">
                     <p>${coordsInfo}</p>
                     <p>Gedruckt am: ${new Date().toLocaleString('de-DE')}</p>
-                </div>
-                <div class="print-logo">
-                    GARMIN
                 </div>
             </div>
         `;
