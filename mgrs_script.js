@@ -83,7 +83,6 @@ function addMgrsGrids() {
     generateGZDGrids.addTo(map);
     generate100kGrids.addTo(map);
     generate1000meterGrids.addTo(map);
-    generate100meterGrids.addTo(map);
 
     // --- Scale Control ---
     L.control.scale({ imperial: false }).addTo(map);
@@ -375,46 +374,46 @@ async function printMap() {
     const printContainer = document.getElementById('print-container');
     const mapElement = document.getElementById('map');
     const paperSize = document.getElementById('paper-size-select').value;
-    const printClass = `print-${paperSize}`; // e.g., 'print-a4'
+    const printClass = `print-${paperSize}`;
 
-    // Add classes to body for styling
     document.body.classList.add('printing', printClass);
 
+    // Define all grids that should be part of the "perfect" printout.
+    const printableGrids = [
+        overlayMaps["GZD Gitter"],
+        overlayMaps["100km Gitter"],
+        overlayMaps["1000m Gitter"],
+        overlayMaps["100m Gitter"]
+    ];
+
+    // Find out which of these grids are not currently on the map.
+    const gridsToAdd = printableGrids.filter(grid => !map.hasLayer(grid));
+
     try {
-        // Step 1: Wait for all layers to be ready
-        console.log("Waiting for layers to load...");
-        const layersToWaitFor = [];
-        map.eachLayer(layer => {
-            // Only wait for tile layers and our MGRS grid layer groups
-            if (layer instanceof L.TileLayer || layer instanceof L.LayerGroup) {
-                layersToWaitFor.push(layer);
-            }
-        });
+        // Step 1: Temporarily add any missing grids to the map.
+        gridsToAdd.forEach(grid => map.addLayer(grid));
+
+        // Step 2: Wait for all layers (base layer + all printable grids) to be ready.
+        const activeTileLayer = map.hasLayer(topoLayer) ? topoLayer : osmLayer;
+        const layersToWaitFor = [activeTileLayer, ...printableGrids];
         await waitForLayers(layersToWaitFor);
 
-        console.log("Layers loaded, generating canvas...");
-
-        // Step 2: Generate the canvas from the map
+        // Step 3: Generate the canvas from the map.
         const canvas = await html2canvas(mapElement, {
             useCORS: true,
             logging: false,
-            scale: 3, // Render at 3x resolution for highest quality
+            scale: 3,
         });
-
         const mapImageUrl = canvas.toDataURL('image/png');
 
-        // Step 3: Construct the print layout
+        // Step 4: Construct the print layout.
         let coordsInfo = '';
         const center = map.getCenter();
         if (currentMarker) {
             const markerLatLng = currentMarker.getLatLng();
-            coordsInfo = `<strong>Markierte Position:</strong>
-                          GPS: ${markerLatLng.lat.toFixed(6)}, ${markerLatLng.lng.toFixed(6)}<br>
-                          MGRS: ${mgrs.forward([markerLatLng.lng, markerLatLng.lat])}`;
+            coordsInfo = `<strong>Markierte Position:</strong><br>GPS: ${markerLatLng.lat.toFixed(6)}, ${markerLatLng.lng.toFixed(6)}<br>MGRS: ${mgrs.forward([markerLatLng.lng, markerLatLng.lat])}`;
         } else {
-            coordsInfo = `<strong>Kartenmitte:</strong>
-                          GPS: ${center.lat.toFixed(5)}, ${center.lng.toFixed(5)}<br>
-                          MGRS: ${mgrs.forward([center.lng, center.lat], 5)}`;
+            coordsInfo = `<strong>Kartenmitte:</strong><br>GPS: ${center.lat.toFixed(5)}, ${center.lng.toFixed(5)}<br>MGRS: ${mgrs.forward([center.lng, center.lat], 5)}`;
         }
 
         const scaleLabel = document.querySelector('.leaflet-control-scale-line').innerText;
@@ -426,33 +425,28 @@ async function printMap() {
                 <img id="print-map-image" src="${mapImageUrl}" />
                 <div id="print-north-arrow">${northArrowSvg}</div>
                 <div id="print-scale-bar" style="width: ${scaleWidth};">
-                    <div class="scale-bar-segment"></div>
-                    <div class="scale-bar-segment"></div>
+                    <div class="scale-bar-segment"></div><div class="scale-bar-segment"></div>
                     <div class="scale-bar-label">${scaleLabel}</div>
                 </div>
             </div>
-
             <div class="print-footer">
-                <div class="print-info">
-                    <p>${coordsInfo}</p>
-                    <p>Gedruckt am: ${new Date().toLocaleString('de-DE')}</p>
-                </div>
-            </div>
-        `;
+                <div class="print-info"><p>${coordsInfo}</p><p>Gedruckt am: ${new Date().toLocaleString('de-DE')}</p></div>
+            </div>`;
 
         printContainer.style.display = 'block';
 
-        // Step 4: Trigger the browser's print dialog
+        // Step 5: Trigger the browser's print dialog.
         setTimeout(() => {
             window.print();
-            // Clean up after printing
-            document.body.classList.remove('printing', printClass);
-            printContainer.style.display = 'none';
         }, 500);
 
     } catch (error) {
         console.error('Printing failed:', error);
-        document.body.classList.remove('printing', printClass); // Ensure cleanup on error
         alert('Fehler beim Erstellen der Druckvorschau.');
+    } finally {
+        // Step 6 (Crucial): Clean up by removing the temporarily added layers and classes.
+        gridsToAdd.forEach(grid => map.removeLayer(grid));
+        document.body.classList.remove('printing', printClass);
+        printContainer.style.display = 'none';
     }
 }
