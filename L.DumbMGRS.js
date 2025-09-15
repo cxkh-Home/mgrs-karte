@@ -775,13 +775,13 @@ const GZD = L.LayerGroup.extend({
   },
 
   // Find all the Grid Zone Designators that are in your view
-  getInBoundsGZDs() {
+  getInBoundsGZDs(force = false) {
     // Clear every grid off the map
     this.clearLayers();
     const currentZoom = this._map.getZoom();
 
     // Do not create GZDs if the map is zoomed out at 4 or below
-    if ((currentZoom >= this.options.minZoom) && (currentZoom <= this.options.maxZoom)) {
+    if (force || ((currentZoom >= this.options.minZoom) && (currentZoom <= this.options.maxZoom))) {
       // Combined the northingDict and eastingDict into one object
       const combinedObj = { ...this.northObj, ...this.eastObj };
       // Create an array to store the inBounds values for letter,top, and bottom
@@ -868,6 +868,7 @@ const GZD = L.LayerGroup.extend({
         }
       });
     }
+    this.fire('rendercomplete');
     return this;
   },
 
@@ -1035,11 +1036,11 @@ const MGRS100K = L.LayerGroup.extend({
     this.getVizGrids();
   },
 
-  getVizGrids() {
+  getVizGrids(force = false) {
     // Clear every grid off the map
     this.clearLayers();
     const currentZoom = this._map.getZoom();
-    if ((currentZoom >= this.options.minZoom) && (currentZoom <= this.options.maxZoom)) {
+    if (force || ((currentZoom >= this.options.minZoom) && (currentZoom <= this.options.maxZoom))) {
       // empty the arrays so we can redraw the grids
       this.empty = [];
       this.eastingArray = [];
@@ -1062,6 +1063,8 @@ const MGRS100K = L.LayerGroup.extend({
         return acc;
       }, {});
       this.prepGrids(this.uniqueVisibleGrids);
+    } else {
+        this.fire('rendercomplete');
     }
     return this;
   },
@@ -1069,21 +1072,20 @@ const MGRS100K = L.LayerGroup.extend({
   prepGrids(uniqueVisibleGrids) {
     this.uniqueVisibleGrids = uniqueVisibleGrids;
     const visibleGridsIterator = new Map(Object.entries(this.uniqueVisibleGrids));
-
-    // Not sure how useful this promise is. It works fine with just a forEach loop
-    //! use async/await or just a forEach loop?
-    const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const promises = [];
 
     visibleGridsIterator.forEach((grid) => {
-      delay(20)
-        .then(() => {
-          // This is where all the grids are generated.
+      const promise = new Promise((resolve) => {
+        setTimeout(() => {
           this.generateGrids(grid);
-          return delay(3000);
-        })
-        .catch((err) => {
-          console.error(err);
-        });
+          resolve();
+        }, 0);
+      });
+      promises.push(promise);
+    });
+
+    Promise.all(promises).then(() => {
+      this.fire('rendercomplete');
     });
   },
 
@@ -1705,16 +1707,16 @@ const MGRS1000Meters = L.LayerGroup.extend({
     this.regenerate();
   },
 
-  regenerate() {
+  regenerate(force = false) {
     this.clearLayers();
     const currentZoom = this._map.getZoom();
 
-    if ((currentZoom >= this.options.minZoom) && (currentZoom <= this.options.maxZoom)) {
+    if (force || ((currentZoom >= this.options.minZoom) && (currentZoom <= this.options.maxZoom))) {
       this._bounds = this._map.getBounds().pad(this.getPaddingOnZoomLevel1000Meters());
       this.clearLayers();
       this.empty = [];
 
-      if (currentZoom >= this.options.minZoom && currentZoom <= this.options.maxZoom) {
+      if (force || (currentZoom >= this.options.minZoom && currentZoom <= this.options.maxZoom)) {
         // Call the GZD class and get the visible grid zone designators on the map
         //! This is dependent on you class constructor variable name. Not smart
         generateGZDGrids.viz.forEach((visibleGrid) => {
@@ -1756,6 +1758,7 @@ const MGRS1000Meters = L.LayerGroup.extend({
         }
       }
     }
+    this.fire('rendercomplete');
     return this;
   },
   // Gets the minimum easting and northing of each 1000 meter grid line
@@ -2108,16 +2111,16 @@ const MGRS100Meters = L.LayerGroup.extend({
     this.regenerate();
   },
 
-  regenerate() {
+  regenerate(force = false) {
     this.clearLayers();
     const currentZoom = this._map.getZoom();
 
-    if ((currentZoom >= this.options.minZoom) && (currentZoom <= this.options.maxZoom)) {
+    if (force || ((currentZoom >= this.options.minZoom) && (currentZoom <= this.options.maxZoom))) {
       this._bounds = this._map.getBounds().pad(this.getPaddingOnZoomLevel1000Meters());
       this.clearLayers();
       this.empty = [];
 
-      if (currentZoom >= this.options.minZoom && currentZoom <= this.options.maxZoom) {
+      if (force || (currentZoom >= this.options.minZoom && currentZoom <= this.options.maxZoom)) {
         // Call the GZD class and get the visible grid zone designators on the map
         //! This is dependent on you class constructor variable name. Not smart
         generateGZDGrids.viz.forEach((visibleGrid) => {
@@ -2159,6 +2162,7 @@ const MGRS100Meters = L.LayerGroup.extend({
         }
       }
     }
+    this.fire('rendercomplete');
     return this;
   },
   // Gets the minimum easting and northing of each 1000 meter grid line

@@ -12,9 +12,9 @@ const topoLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png'
 	attribution: 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)'
 });
 
-// As mentioned in a previous step, the MGRS100K and MGRS1000Meters classes
-// have a dependency on a global 'generateGZDGrids' variable. I will define it here.
-let generateGZDGrids;
+// Define grid layer variables in a higher scope to be accessible by print function
+let generateGZDGrids, generate100kGrids, generate1000meterGrids, generate100meterGrids;
+
 
 // Add MGRS Grids
 function addMgrsGrids() {
@@ -30,7 +30,7 @@ function addMgrsGrids() {
     });
 
     // 100K Meter Grids
-    const generate100kGrids = new L.MGRS100K({
+    generate100kGrids = new L.MGRS100K({
         showLabels: true,
         showGrids: true,
         lineStyle: {
@@ -41,7 +41,7 @@ function addMgrsGrids() {
     });
 
     // 1000 Meter Grids
-    const generate1000meterGrids = new L.MGRS1000Meters({
+    generate1000meterGrids = new L.MGRS1000Meters({
         showLabels: true,
         showGrids: true,
         minZoom: 12, // Only show at higher zoom levels
@@ -58,7 +58,7 @@ function addMgrsGrids() {
         "Topographisch": topoLayer
     };
 
-    const generate100meterGrids = new L.MGRS100Meters({
+    generate100meterGrids = new L.MGRS100Meters({
         showLabels: false, // Labels at this level are too cluttered
         showGrids: true,
         minZoom: 15,
@@ -308,7 +308,17 @@ document.addEventListener('DOMContentLoaded', function() {
         editableLayers.addLayer(layer);
 
         layer.on('click', () => {
+            // Only show the prompt if not in delete or edit mode
+            if (map.pm.globalRemovalModeEnabled() || map.pm.globalEditModeEnabled()) {
+                return;
+            }
+
             const label = prompt("Enter label for this feature:");
+            // If the user cancels the prompt, don't do anything
+            if (label === null) {
+                return;
+            }
+
             let content = label || ''; // Start with the label, or empty if none given
 
             let measurement = '';
@@ -336,6 +346,7 @@ document.addEventListener('DOMContentLoaded', function() {
                 content += `<br><em>${measurement}</em>`;
             }
 
+            // Only bind a tooltip if there's content to show.
             if (content) {
                  if (layer.getTooltip()) {
                     layer.unbindTooltip();
@@ -345,6 +356,11 @@ document.addEventListener('DOMContentLoaded', function() {
                     direction: 'center',
                     className: 'feature-label'
                 }).openTooltip();
+            } else {
+                // If the user enters an empty label and there's no measurement, remove any existing tooltip.
+                if (layer.getTooltip()) {
+                    layer.unbindTooltip();
+                }
             }
         });
     });
@@ -380,28 +396,88 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 // === DRUCKFUNKTION ===
+
+/**
+ * Waits for all active map layers to finish rendering.
+ * This is crucial for ensuring the print output is not blank.
+ * @param {L.Map} mapInstance The Leaflet map instance.
+ * @param {object} overlayMaps The overlayMaps object from the layer control.
+ * @returns {Promise<void>} A promise that resolves when all layers are ready.
+ */
+function waitForLayers(mapInstance, overlayMaps) {
+    const activeLayers = [];
+    // Find the active base layer
+    mapInstance.eachLayer(layer => {
+        if (layer instanceof L.TileLayer) {
+            activeLayers.push(layer);
+        }
+    });
+
+    // Find active overlay layers
+    for (const key in overlayMaps) {
+        if (mapInstance.hasLayer(overlayMaps[key])) {
+            activeLayers.push(overlayMaps[key]);
+        }
+    }
+
+    const promises = activeLayers.map(layer => {
+        return new Promise((resolve, reject) => {
+            // Set a timeout to prevent waiting forever if an event never fires.
+            const timer = setTimeout(() => reject(new Error(`Layer timed out: ${layer.options.attribution || 'Grid Layer'}`)), 10000);
+
+            if (layer instanceof L.TileLayer) {
+                layer.once('load', () => { clearTimeout(timer); resolve(); });
+                // Trigger a redraw for tile layers
+                layer.redraw();
+            } else if (layer.options && typeof layer.getInBoundsGZDs === 'function') { // GZD Layer
+                layer.once('rendercomplete', () => { clearTimeout(timer); resolve(); });
+                layer.getInBoundsGZDs(true); // force=true
+            } else if (layer.options && typeof layer.getVizGrids === 'function') { // 100k Layer
+                layer.once('rendercomplete', () => { clearTimeout(timer); resolve(); });
+                layer.getVizGrids(true); // force=true
+            } else if (layer.options && typeof layer.regenerate === 'function') { // 1000m & 100m Layers
+                layer.once('rendercomplete', () => { clearTimeout(timer); resolve(); });
+                layer.regenerate(true); // force=true
+            } else {
+                // For layers without a specific render event (like drawn shapes), resolve immediately.
+                clearTimeout(timer);
+                resolve();
+            }
+        });
+    });
+
+    return Promise.all(promises);
+}
+
+
 async function printMap() {
     const printContainer = document.getElementById('print-container');
     const mapElement = document.getElementById('map');
     const paperSize = document.getElementById('paper-size-select').value;
     const printClass = `print-${paperSize}`;
+    const overlayMaps = {
+        "GZD Gitter": generateGZDGrids,
+        "100km Gitter": generate100kGrids,
+        "1000m Gitter": generate1000meterGrids,
+        "100m Gitter": generate100meterGrids
+    };
+
 
     document.body.classList.add('printing', printClass);
 
     try {
-        // Force a redraw of the map and all its current layers
+        // Force a redraw of the map to get it into the print layout
         map.invalidateSize();
-        map.fire('moveend');
 
-        // Wait for a fixed timeout to allow all layers to render.
         console.log("Waiting for layers to render...");
-        await new Promise(resolve => setTimeout(resolve, 3000));
-        console.log("Wait finished, generating canvas...");
+        // This is the key change: wait for our layers to be ready.
+        await waitForLayers(map, overlayMaps);
+        console.log("All layers rendered, generating canvas...");
 
         const canvas = await html2canvas(mapElement, {
             useCORS: true,
             logging: false,
-            scale: 3,
+            scale: 3, // High resolution
         });
         const mapImageUrl = canvas.toDataURL('image/png');
 
@@ -433,15 +509,19 @@ async function printMap() {
 
         printContainer.style.display = 'block';
 
+        // Use a short timeout to ensure the browser has rendered the print-container content
         setTimeout(() => {
             window.print();
         }, 500);
 
     } catch (error) {
         console.error('Printing failed:', error);
-        alert('Fehler beim Erstellen der Druckvorschau.');
+        alert('Fehler beim Erstellen der Druckvorschau: ' + error.message);
     } finally {
+        // Clean up after printing
         document.body.classList.remove('printing', printClass);
         printContainer.style.display = 'none';
+        // Redraw the map in its normal view
+        map.invalidateSize();
     }
 }
