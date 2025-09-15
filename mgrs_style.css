@@ -94,10 +94,27 @@ body, html {
     background-color: #45a049;
 }
 
+#paper-size-select {
+    padding: 8px 12px;
+    border-radius: 4px;
+    border: 1px solid #ccc;
+    background-color: white;
+    font-size: 14px;
+}
+
 @media print {
-    @page {
-        size: A4 portrait;
-        margin: 1cm;
+    body.print-a4 {
+        @page {
+            size: A4 portrait;
+            margin: 1cm;
+        }
+    }
+
+    body.print-a3 {
+        @page {
+            size: A3 portrait;
+            margin: 1cm;
+        }
     }
 
     body, html {
@@ -130,20 +147,6 @@ body, html {
     font-family: Arial, sans-serif;
     color: #333;
     display: none; /* Hidden by default, shown by JS */
-}
-
-.print-header {
-    display: flex;
-    justify-content: center; /* Center the title */
-    align-items: center;
-    margin-bottom: 10px;
-    flex-shrink: 0;
-}
-
-.print-title {
-    font-size: 24px;
-    font-weight: bold;
-    text-align: center;
 }
 
 .print-map-wrapper {

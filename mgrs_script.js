@@ -14,6 +14,8 @@ const topoLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png'
 // As mentioned in a previous step, the MGRS100K and MGRS1000Meters classes
 // have a dependency on a global 'generateGZDGrids' variable. I will define it here.
 let generateGZDGrids;
+let generate100meterGrids;
+let overlayMaps;
 
 // Add MGRS Grids
 function addMgrsGrids() {
@@ -57,7 +59,7 @@ function addMgrsGrids() {
         "Topographisch": topoLayer
     };
 
-    const generate100meterGrids = new L.MGRS100Meters({
+    generate100meterGrids = new L.MGRS100Meters({
         showLabels: false, // Labels at this level are too cluttered
         showGrids: true,
         minZoom: 15,
@@ -68,7 +70,7 @@ function addMgrsGrids() {
         },
     });
 
-    const overlayMaps = {
+    overlayMaps = {
         "GZD Gitter": generateGZDGrids,
         "100km Gitter": generate100kGrids,
         "1000m Gitter": generate1000meterGrids,
@@ -290,6 +292,21 @@ document.addEventListener('DOMContentLoaded', function() {
     map.on('move', updateLocationDisplay);
     map.on('click', (e) => showOnMap(e.latlng.lat, e.latlng.lng));
 
+    // Auto-toggle 100m grid based on zoom
+    map.on('zoomend', function() {
+        const zoomLevel = map.getZoom();
+        const grid100m = overlayMaps["100m Gitter"]; // Get the layer from the control
+        if (zoomLevel >= 15) {
+            if (!map.hasLayer(grid100m)) {
+                map.addLayer(grid100m);
+            }
+        } else {
+            if (map.hasLayer(grid100m)) {
+                map.removeLayer(grid100m);
+            }
+        }
+    });
+
     // Initialize other components
     initProjections();
     addMgrsGrids();
@@ -324,15 +341,17 @@ document.addEventListener('DOMContentLoaded', function() {
 async function printMap() {
     const printContainer = document.getElementById('print-container');
     const mapElement = document.getElementById('map');
+    const paperSize = document.getElementById('paper-size-select').value;
+    const printClass = `print-${paperSize}`; // e.g., 'print-a4'
 
-    // Show a "preparing print" message
-    document.body.classList.add('printing');
+    // Add classes to body for styling
+    document.body.classList.add('printing', printClass);
 
     try {
         const canvas = await html2canvas(mapElement, {
             useCORS: true,
             logging: false,
-            scale: 2, // Render at 2x resolution
+            scale: 3, // Render at 3x resolution for highest quality
         });
 
         const mapImageUrl = canvas.toDataURL('image/png');
@@ -356,12 +375,6 @@ async function printMap() {
 
         // Construct the new print layout
         printContainer.innerHTML = `
-            <div class="print-header">
-                <div class="print-title">
-                    Suchplanung
-                </div>
-            </div>
-
             <div class="print-map-wrapper">
                 <img id="print-map-image" src="${mapImageUrl}" />
                 <div id="print-north-arrow">${northArrowSvg}</div>
@@ -386,13 +399,13 @@ async function printMap() {
         setTimeout(() => {
             window.print();
             // Clean up after printing
-            document.body.classList.remove('printing');
+            document.body.classList.remove('printing', printClass);
             printContainer.style.display = 'none';
         }, 500);
 
     } catch (error) {
         console.error('Printing failed:', error);
-        document.body.classList.remove('printing'); // Ensure cleanup on error
+        document.body.classList.remove('printing', printClass); // Ensure cleanup on error
         alert('Fehler beim Erstellen der Druckvorschau.');
     }
 }
