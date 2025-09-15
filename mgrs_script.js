@@ -83,6 +83,7 @@ function addMgrsGrids() {
     generateGZDGrids.addTo(map);
     generate100kGrids.addTo(map);
     generate1000meterGrids.addTo(map);
+    generate100meterGrids.addTo(map);
 
     // --- Scale Control ---
     L.control.scale({ imperial: false }).addTo(map);
@@ -292,29 +293,11 @@ document.addEventListener('DOMContentLoaded', function() {
     map.on('move', updateLocationDisplay);
     map.on('click', (e) => showOnMap(e.latlng.lat, e.latlng.lng));
 
-    // Auto-toggle 100m grid based on zoom
-    map.on('zoomend', function() {
-        const zoomLevel = map.getZoom();
-        const grid100m = overlayMaps["100m Gitter"]; // Get the layer from the control
-        if (zoomLevel >= 15) {
-            if (!map.hasLayer(grid100m)) {
-                map.addLayer(grid100m);
-            }
-        } else {
-            if (map.hasLayer(grid100m)) {
-                map.removeLayer(grid100m);
-            }
-        }
-    });
-
     // Initialize other components
     initProjections();
     addMgrsGrids();
     handleUrlParameters();
     updateLocationDisplay();
-
-    // Fire zoomend once on load to set initial grid visibility
-    map.fire('zoomend');
 
     // Set up UI event listeners
     document.addEventListener('click', function(e) {
