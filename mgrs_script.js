@@ -302,9 +302,51 @@ document.addEventListener('DOMContentLoaded', function() {
         drawCircleMarker: false,
     });
 
-    // Add drawn layers to our feature group
+    // Add drawn layers to our feature group and add a click listener for labeling
     map.on('pm:create', (e) => {
-        editableLayers.addLayer(e.layer);
+        const layer = e.layer;
+        editableLayers.addLayer(layer);
+
+        layer.on('click', () => {
+            const label = prompt("Enter label for this feature:");
+            let content = label || ''; // Start with the label, or empty if none given
+
+            let measurement = '';
+            if (layer instanceof L.Polygon) {
+                const area = L.GeometryUtil.geodesicArea(layer.getLatLngs()[0]);
+                if (area > 10000) {
+                    measurement = `${(area / 10000).toFixed(2)} ha`;
+                } else {
+                    measurement = `${area.toFixed(2)} m²`;
+                }
+            } else if (layer instanceof L.Polyline) {
+                let distance = 0;
+                const latlngs = layer.getLatLngs();
+                for (let i = 0; i < latlngs.length - 1; i++) {
+                    distance += latlngs[i].distanceTo(latlngs[i + 1]);
+                }
+                if (distance > 1000) {
+                    measurement = `${(distance / 1000).toFixed(2)} km`;
+                } else {
+                    measurement = `${distance.toFixed(2)} m`;
+                }
+            }
+
+            if (measurement) {
+                content += `<br><em>${measurement}</em>`;
+            }
+
+            if (content) {
+                 if (layer.getTooltip()) {
+                    layer.unbindTooltip();
+                }
+                layer.bindTooltip(content, {
+                    permanent: true,
+                    direction: 'center',
+                    className: 'feature-label'
+                }).openTooltip();
+            }
+        });
     });
 
     // Initialize other components
@@ -341,28 +383,35 @@ document.addEventListener('DOMContentLoaded', function() {
 async function printMap() {
     const printContainer = document.getElementById('print-container');
     const mapElement = document.getElementById('map');
+    const paperSize = document.getElementById('paper-size-select').value;
+    const printClass = `print-${paperSize}`;
 
-    document.body.classList.add('printing');
+    document.body.classList.add('printing', printClass);
 
     try {
+        // Force a redraw of the map and all its current layers
+        map.invalidateSize();
+        map.fire('moveend');
+
+        // Wait for a fixed timeout to allow all layers to render.
+        console.log("Waiting for layers to render...");
+        await new Promise(resolve => setTimeout(resolve, 3000));
+        console.log("Wait finished, generating canvas...");
+
         const canvas = await html2canvas(mapElement, {
             useCORS: true,
             logging: false,
+            scale: 3,
         });
-
         const mapImageUrl = canvas.toDataURL('image/png');
 
         let coordsInfo = '';
         const center = map.getCenter();
         if (currentMarker) {
             const markerLatLng = currentMarker.getLatLng();
-            coordsInfo = `<strong>Markierte Position:</strong><br>
-                          GPS: ${markerLatLng.lat.toFixed(6)}, ${markerLatLng.lng.toFixed(6)}<br>
-                          MGRS: ${mgrs.forward([markerLatLng.lng, markerLatLng.lat])}`;
+            coordsInfo = `<strong>Markierte Position:</strong><br>GPS: ${markerLatLng.lat.toFixed(6)}, ${markerLatLng.lng.toFixed(6)}<br>MGRS: ${mgrs.forward([markerLatLng.lng, markerLatLng.lat])}`;
         } else {
-            coordsInfo = `<strong>Kartenmitte:</strong><br>
-                          GPS: ${center.lat.toFixed(5)}, ${center.lng.toFixed(5)}<br>
-                          MGRS: ${mgrs.forward([center.lng, center.lat], 5)}`;
+            coordsInfo = `<strong>Kartenmitte:</strong><br>GPS: ${center.lat.toFixed(5)}, ${center.lng.toFixed(5)}<br>MGRS: ${mgrs.forward([center.lng, center.lat], 5)}`;
         }
 
         const scaleLabel = document.querySelector('.leaflet-control-scale-line').innerText;
@@ -370,30 +419,29 @@ async function printMap() {
         const northArrowSvg = document.querySelector('.leaflet-control-north').innerHTML;
 
         printContainer.innerHTML = `
-            <h1>Kartenausdruck</h1>
             <div class="print-map-wrapper">
                 <img id="print-map-image" src="${mapImageUrl}" />
                 <div id="print-north-arrow">${northArrowSvg}</div>
-                <div id="print-scale-bar" style="width: ${scaleWidth};">${scaleLabel}</div>
+                <div id="print-scale-bar" style="width: ${scaleWidth};">
+                    <div class="scale-bar-segment"></div><div class="scale-bar-segment"></div>
+                    <div class="scale-bar-label">${scaleLabel}</div>
+                </div>
             </div>
-            <div class="print-info">
-                <h2>Informationen</h2>
-                <p>${coordsInfo}</p>
-                <p>Gedruckt am: ${new Date().toLocaleString('de-DE')}</p>
-            </div>
-        `;
+            <div class="print-footer">
+                <div class="print-info"><p>${coordsInfo}</p><p>Gedruckt am: ${new Date().toLocaleString('de-DE')}</p></div>
+            </div>`;
 
         printContainer.style.display = 'block';
 
         setTimeout(() => {
             window.print();
-            document.body.classList.remove('printing');
-            printContainer.style.display = 'none';
         }, 500);
 
     } catch (error) {
         console.error('Printing failed:', error);
-        document.body.classList.remove('printing');
         alert('Fehler beim Erstellen der Druckvorschau.');
+    } finally {
+        document.body.classList.remove('printing', printClass);
+        printContainer.style.display = 'none';
     }
 }
