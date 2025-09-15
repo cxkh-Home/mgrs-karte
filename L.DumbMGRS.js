@@ -868,6 +868,7 @@ const GZD = L.LayerGroup.extend({
         }
       });
     }
+    this.fire('rendercomplete');
     return this;
   },
 
@@ -1069,21 +1070,22 @@ const MGRS100K = L.LayerGroup.extend({
   prepGrids(uniqueVisibleGrids) {
     this.uniqueVisibleGrids = uniqueVisibleGrids;
     const visibleGridsIterator = new Map(Object.entries(this.uniqueVisibleGrids));
-
-    // Not sure how useful this promise is. It works fine with just a forEach loop
-    //! use async/await or just a forEach loop?
-    const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const promises = [];
 
     visibleGridsIterator.forEach((grid) => {
-      delay(20)
-        .then(() => {
-          // This is where all the grids are generated.
+      const promise = new Promise((resolve) => {
+        // Using setTimeout to prevent the main thread from blocking during a long loop,
+        // and to allow the browser to render other changes.
+        setTimeout(() => {
           this.generateGrids(grid);
-          return delay(3000);
-        })
-        .catch((err) => {
-          console.error(err);
-        });
+          resolve();
+        }, 0); // A timeout of 0 is enough to defer the execution.
+      });
+      promises.push(promise);
+    });
+
+    Promise.all(promises).then(() => {
+      this.fire('rendercomplete');
     });
   },
 
@@ -1756,6 +1758,7 @@ const MGRS1000Meters = L.LayerGroup.extend({
         }
       }
     }
+    this.fire('rendercomplete');
     return this;
   },
   // Gets the minimum easting and northing of each 1000 meter grid line
@@ -2159,6 +2162,7 @@ const MGRS100Meters = L.LayerGroup.extend({
         }
       }
     }
+    this.fire('rendercomplete');
     return this;
   },
   // Gets the minimum easting and northing of each 1000 meter grid line

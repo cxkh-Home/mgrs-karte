@@ -337,36 +337,42 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-function waitForLayers(activeTileLayer, timeout = 10000) {
+function waitForLayers(layers, timeout = 10000) {
     return new Promise((resolve, reject) => {
         const masterTimeout = setTimeout(() => {
-            reject(new Error("Layer loading timed out."));
+            reject(new Error(`Layer loading timed out after ${timeout}ms.`));
         }, timeout);
 
-        let tileLayerLoaded = false;
+        const promises = layers.map(layer => {
+            return new Promise(layerResolve => {
+                // For standard tile layers
+                if (layer instanceof L.TileLayer) {
+                    if (!layer._loading) {
+                        return layerResolve();
+                    }
+                    layer.once('load', () => layerResolve());
+                }
+                // For our custom grid layers
+                else if (layer instanceof L.LayerGroup) {
+                     // The 'rendercomplete' is the new custom event.
+                    layer.once('rendercomplete', () => layerResolve());
+                }
+                // If it's not a layer we know how to handle, resolve immediately.
+                else {
+                    layerResolve();
+                }
+            });
+        });
 
-        const onTileLoad = () => {
-            tileLayerLoaded = true;
-            // The grid layers redraw on moveend, so we just need to wait a moment after that
-            // for the browser to render the SVGs.
-            setTimeout(() => {
-                clearTimeout(masterTimeout);
-                activeTileLayer.off('load', onTileLoad);
-                resolve();
-            }, 500); // 500ms safeguard for grid rendering
-        };
+        // When all individual layer promises have resolved, resolve the main promise.
+        Promise.all(promises).then(() => {
+            clearTimeout(masterTimeout);
+            resolve();
+        });
 
-        activeTileLayer.on('load', onTileLoad);
-
-        // Force a redraw of all layers
+        // Force all layers to redraw to ensure they fire their events.
         map.invalidateSize();
         map.fire('moveend');
-
-        // If the tile layer is already loaded (e.g., from cache), the 'load' event may not fire.
-        // We can check its loading state. The _loading property is internal but effective here.
-        if (!activeTileLayer._loading) {
-            onTileLoad();
-        }
     });
 }
 
@@ -383,8 +389,14 @@ async function printMap() {
     try {
         // Step 1: Wait for all layers to be ready
         console.log("Waiting for layers to load...");
-        const activeTileLayer = map.hasLayer(topoLayer) ? topoLayer : osmLayer;
-        await waitForLayers(activeTileLayer);
+        const layersToWaitFor = [];
+        map.eachLayer(layer => {
+            // Only wait for tile layers and our MGRS grid layer groups
+            if (layer instanceof L.TileLayer || layer instanceof L.LayerGroup) {
+                layersToWaitFor.push(layer);
+            }
+        });
+        await waitForLayers(layersToWaitFor);
 
         console.log("Layers loaded, generating canvas...");
 
