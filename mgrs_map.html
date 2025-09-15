@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MGRS Rasterkarte</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-geosearch@3.0.0/dist/geosearch.css" />
+    <link rel="stylesheet" href="mgrs_style.css">
+</head>
+<body>
+    <div class="header">
+        <h1>MGRS Rasterkarte</h1>
+        <a href="index.html">Zurück zum Koordinatenrechner</a>
+    </div>
+    <div id="map"></div>
+    <div id="location-display"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet-geosearch@latest/dist/bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/leaflet-easyprint@2.1.9/dist/bundle.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mgrs@2.1.0/dist/mgrs.min.js"></script>
+    <script src="L.DumbMGRS.js"></script>
+    <script src="mgrs_script.js"></script>
+</body>
+</html>
