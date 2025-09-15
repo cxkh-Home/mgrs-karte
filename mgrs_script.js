@@ -322,6 +322,7 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
+// === DRUCKFUNKTION ===
 function waitForLayers(layers, timeout = 10000) {
     return new Promise((resolve, reject) => {
         const masterTimeout = setTimeout(() => {
@@ -330,46 +331,23 @@ function waitForLayers(layers, timeout = 10000) {
 
         const promises = layers.map(layer => {
             return new Promise(layerResolve => {
-                // For standard tile layers
-                if (layer instanceof L.TileLayer) {
-                    if (!layer._loading) {
-                        return layerResolve();
-                    }
-                    layer.once('load', () => layerResolve());
+                const eventName = (layer instanceof L.TileLayer) ? 'load' : 'rendercomplete';
+
+                if (layer instanceof L.TileLayer && !layer._loading) {
+                    return layerResolve();
                 }
-                // For our custom grid layers
-                else if (layer instanceof L.LayerGroup) {
-                     // The 'rendercomplete' is the new custom event.
-                    layer.once('rendercomplete', () => layerResolve());
-                }
-                // If it's not a layer we know how to handle, resolve immediately.
-                else {
-                    layerResolve();
-                }
+
+                layer.once(eventName, () => layerResolve());
             });
         });
 
-        // When all individual layer promises have resolved, resolve the main promise.
         Promise.all(promises).then(() => {
             clearTimeout(masterTimeout);
             resolve();
         });
-
-        // Force all layers to redraw with the new 'force' flag.
-        map.invalidateSize();
-        layers.forEach(layer => {
-            if (layer.getInBoundsGZDs) {
-                layer.getInBoundsGZDs(true);
-            } else if (layer.getVizGrids) {
-                layer.getVizGrids(true);
-            } else if (layer.regenerate) {
-                layer.regenerate(true);
-            }
-        });
     });
 }
 
-// === DRUCKFUNKTION ===
 async function printMap() {
     const printContainer = document.getElementById('print-container');
     const mapElement = document.getElementById('map');
@@ -378,27 +356,35 @@ async function printMap() {
 
     document.body.classList.add('printing', printClass);
 
-    // Define all grids that should be part of the "perfect" printout.
     const printableGrids = [
         overlayMaps["GZD Gitter"],
         overlayMaps["100km Gitter"],
         overlayMaps["1000m Gitter"],
         overlayMaps["100m Gitter"]
     ];
-
-    // Find out which of these grids are not currently on the map.
     const gridsToAdd = printableGrids.filter(grid => !map.hasLayer(grid));
 
     try {
-        // Step 1: Temporarily add any missing grids to the map.
         gridsToAdd.forEach(grid => map.addLayer(grid));
 
-        // Step 2: Wait for all layers (base layer + all printable grids) to be ready.
         const activeTileLayer = map.hasLayer(topoLayer) ? topoLayer : osmLayer;
         const layersToWaitFor = [activeTileLayer, ...printableGrids];
-        await waitForLayers(layersToWaitFor);
 
-        // Step 3: Generate the canvas from the map.
+        const waitPromise = waitForLayers(layersToWaitFor);
+
+        map.invalidateSize();
+        layersToWaitFor.forEach(layer => {
+            if (layer.getInBoundsGZDs) {
+                layer.getInBoundsGZDs(true);
+            } else if (layer.getVizGrids) {
+                layer.getVizGrids(true);
+            } else if (layer.regenerate) {
+                layer.regenerate(true);
+            }
+        });
+
+        await waitPromise;
+
         const canvas = await html2canvas(mapElement, {
             useCORS: true,
             logging: false,
@@ -406,7 +392,6 @@ async function printMap() {
         });
         const mapImageUrl = canvas.toDataURL('image/png');
 
-        // Step 4: Construct the print layout.
         let coordsInfo = '';
         const center = map.getCenter();
         if (currentMarker) {
@@ -435,7 +420,6 @@ async function printMap() {
 
         printContainer.style.display = 'block';
 
-        // Step 5: Trigger the browser's print dialog.
         setTimeout(() => {
             window.print();
         }, 500);
@@ -444,7 +428,6 @@ async function printMap() {
         console.error('Printing failed:', error);
         alert('Fehler beim Erstellen der Druckvorschau.');
     } finally {
-        // Step 6 (Crucial): Clean up by removing the temporarily added layers and classes.
         gridsToAdd.forEach(grid => map.removeLayer(grid));
         document.body.classList.remove('printing', printClass);
         printContainer.style.display = 'none';
