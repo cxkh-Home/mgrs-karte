@@ -325,6 +325,7 @@ async function printMap() {
     const printContainer = document.getElementById('print-container');
     const mapElement = document.getElementById('map');
 
+    // Show a "preparing print" message
     document.body.classList.add('printing');
 
     try {
@@ -339,11 +340,11 @@ async function printMap() {
         const center = map.getCenter();
         if (currentMarker) {
             const markerLatLng = currentMarker.getLatLng();
-            coordsInfo = `<strong>Markierte Position:</strong><br>
+            coordsInfo = `<strong>Markierte Position:</strong>
                           GPS: ${markerLatLng.lat.toFixed(6)}, ${markerLatLng.lng.toFixed(6)}<br>
                           MGRS: ${mgrs.forward([markerLatLng.lng, markerLatLng.lat])}`;
         } else {
-            coordsInfo = `<strong>Kartenmitte:</strong><br>
+            coordsInfo = `<strong>Kartenmitte:</strong>
                           GPS: ${center.lat.toFixed(5)}, ${center.lng.toFixed(5)}<br>
                           MGRS: ${mgrs.forward([center.lng, center.lat], 5)}`;
         }
@@ -352,31 +353,51 @@ async function printMap() {
         const scaleWidth = document.querySelector('.leaflet-control-scale-line').style.width;
         const northArrowSvg = document.querySelector('.leaflet-control-north').innerHTML;
 
+        // Construct the new print layout
         printContainer.innerHTML = `
-            <h1>Kartenausdruck</h1>
+            <div class="print-header">
+                <div class="print-header-left">
+                    <p>UTM WGS 84</p>
+                    <p>Freizeitkarte DEU</p>
+                </div>
+                <div class="print-title">
+                    Suchplanung
+                </div>
+                <div class="print-header-right">
+
+                </div>
+            </div>
+
             <div class="print-map-wrapper">
                 <img id="print-map-image" src="${mapImageUrl}" />
                 <div id="print-north-arrow">${northArrowSvg}</div>
                 <div id="print-scale-bar" style="width: ${scaleWidth};">${scaleLabel}</div>
             </div>
-            <div class="print-info">
-                <h2>Informationen</h2>
-                <p>${coordsInfo}</p>
-                <p>Gedruckt am: ${new Date().toLocaleString('de-DE')}</p>
+
+            <div class="print-footer">
+                <div class="print-info">
+                    <p>${coordsInfo}</p>
+                    <p>Gedruckt am: ${new Date().toLocaleString('de-DE')}</p>
+                </div>
+                <div class="print-logo">
+                    GARMIN
+                </div>
             </div>
         `;
 
         printContainer.style.display = 'block';
 
+        // Wait a bit for the content to render before printing
         setTimeout(() => {
             window.print();
+            // Clean up after printing
             document.body.classList.remove('printing');
             printContainer.style.display = 'none';
         }, 500);
 
     } catch (error) {
         console.error('Printing failed:', error);
-        document.body.classList.remove('printing');
+        document.body.classList.remove('printing'); // Ensure cleanup on error
         alert('Fehler beim Erstellen der Druckvorschau.');
     }
 }
