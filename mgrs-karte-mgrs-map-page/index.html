@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Universal Koordinatenrechner</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/proj4@2.9.0/dist/proj4.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mgrs@2.1.0/dist/mgrs.min.js"></script>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-gradient-to-br from-blue-50 to-indigo-100 min-h-screen">
+    <!-- Header -->
+    <header class="bg-gradient-to-r from-blue-600 to-indigo-700 text-white py-8 shadow-xl">
+        <div class="container mx-auto px-4 text-center">
+            <h1 class="text-4xl font-bold mb-2">🌍 Universal Koordinatenrechner</h1>
+            <p class="text-blue-100 text-lg">GPS • UTM Weltweit • Adressen - Alle 120 UTM-Zonen unterstützt</p>
+        </div>
+    </header>
+
+    <div class="container mx-auto px-4 py-4 sm:py-8 max-w-7xl">
+        <!-- Universal Input -->
+        <div class="card p-4 sm:p-6 mb-6 sm:mb-8 fade-in">
+            <h2 class="text-xl sm:text-2xl font-bold text-gray-800 mb-4 sm:mb-6 text-center sm:text-left">📍 Koordinaten oder Adresse eingeben</h2>
+
+            <!-- Format-Indikator -->
+            <div class="flex justify-center mb-4">
+                <div id="format-indicator" class="format-indicator format-unknown">
+                    <span id="format-icon">❓</span>
+                    <span id="format-text">Eingabe wird erkannt...</span>
+                </div>
+            </div>
+
+            <!-- Universal Input Field -->
+            <div class="input-group bg-gray-50 p-3 sm:p-4 rounded-lg mb-4 relative">
+                <label class="block text-sm font-medium text-gray-700 mb-2">Universelle Eingabe:</label>
+                <input type="text" id="universal-input" class="w-full p-4 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 text-base"
+                       placeholder="GPS | UTM | Adresse"
+                       oninput="analyzeInput()" autocomplete="off">
+                <div id="suggestions" class="absolute z-50 w-full bg-white border border-gray-300 rounded-lg shadow-xl -mt-1 bottom-full mb-1 hidden max-h-60 overflow-y-auto left-0 right-0"></div>
+                <div id="input-validation" class="text-xs mt-2 hidden"></div>
+
+                <!-- Format-Beispiele als klickbare Buttons -->
+                <div class="mt-3 flex flex-wrap gap-2 justify-center">
+                    <button onclick="toggleExamples('gps')" class="bg-blue-100 hover:bg-blue-200 text-blue-700 px-3 py-1 rounded-full text-xs font-medium transition-colors">
+                        🛰️ GPS-Beispiele
+                    </button>
+                    <button onclick="toggleExamples('utm')" class="bg-green-100 hover:bg-green-200 text-green-700 px-3 py-1 rounded-full text-xs font-medium transition-colors">
+                        📐 UTM-Beispiele
+                    </button>
+                    <button onclick="toggleExamples('address')" class="bg-orange-100 hover:bg-orange-200 text-orange-700 px-3 py-1 rounded-full text-xs font-medium transition-colors">
+                        🏠 Adress-Beispiele
+                    </button>
+                    <button onclick="toggleExamples('mgrs')" class="bg-red-100 hover:bg-red-200 text-red-700 px-3 py-1 rounded-full text-xs font-medium transition-colors">
+                        🌐 MGRS-Beispiele
+                    </button>
+                </div>
+
+                <!-- Expandierbare Beispiele -->
+                <div id="gps-examples" class="mt-3 bg-blue-50 border border-blue-200 rounded-lg p-3 hidden">
+                    <div class="font-medium text-blue-700 mb-2">🛰️ GPS-Formate (weltweit):</div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                        <div class="space-y-1">
+                            <div class="text-blue-600 cursor-pointer hover:bg-blue-100 p-1 rounded" onclick="useExample('53.425143, 10.016582')">53.425143, 10.016582</div>
+                            <div class="text-blue-600 cursor-pointer hover:bg-blue-100 p-1 rounded" onclick="useExample('N53°25\'30\" E10°1\'0\"')">N53°25'30" E10°1'0"</div>
+                            <div class="text-blue-600 cursor-pointer hover:bg-blue-100 p-1 rounded" onclick="useExample('53,425143; 10,016582')">53,425143; 10,016582</div>
+                        </div>
+                        <div class="space-y-1">
+                            <div class="text-blue-600 cursor-pointer hover:bg-blue-100 p-1 rounded" onclick="useExample('GPS: -33.8688, 151.2093')">GPS: -33.8688, 151.2093</div>
+                            <div class="text-blue-600 cursor-pointer hover:bg-blue-100 p-1 rounded" onclick="useExample('緯度: 35.6762, 経度: 139.6503')">緯度: 35.6762, 経度: 139.6503</div>
+                            <div class="text-blue-600 cursor-pointer hover:bg-blue-100 p-1 rounded" onclick="useExample('lat: 40.7128, lng: -74.0060')">lat: 40.7128, lng: -74.0060</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="utm-examples" class="mt-3 bg-green-50 border border-green-200 rounded-lg p-3 hidden">
+                    <div class="font-medium text-green-700 mb-2">📐 UTM-Formate (120 Zonen weltweit):</div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                        <div class="space-y-1">
+                            <div class="text-green-600 cursor-pointer hover:bg-green-100 p-1 rounded" onclick="useExample('32U 567550 5920047')">32U 567550 5920047</div>
+                            <div class="text-green-600 cursor-pointer hover:bg-green-100 p-1 rounded" onclick="useExample('11S 334000 6252000')">11S 334000 6252000</div>
+                            <div class="text-green-600 cursor-pointer hover:bg-green-100 p-1 rounded" onclick="useExample('Zone: 55H E334556 N6252047')">Zone: 55H E334556 N6252047</div>
+                        </div>
+                        <div class="space-y-1">
+                            <div class="text-green-600 cursor-pointer hover:bg-green-100 p-1 rounded" onclick="useExample('UTM: 54S 302456 6234567')">UTM: 54S 302456 6234567</div>
+                            <div class="text-green-600 cursor-pointer hover:bg-green-100 p-1 rounded" onclick="useExample('Zona: 18N 589123 4567890')">Zona: 18N 589123 4567890</div>
+                            <div class="text-green-600 cursor-pointer hover:bg-green-100 p-1 rounded" onclick="useExample('33T 294409 5628898')">33T 294409 5628898</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="address-examples" class="mt-3 bg-orange-50 border border-orange-200 rounded-lg p-3 hidden">
+                    <div class="font-medium text-orange-700 mb-2">🏠 Adressen & Orte:</div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                        <div class="space-y-1">
+                            <div class="text-orange-600 cursor-pointer hover:bg-orange-100 p-1 rounded" onclick="useExample('Hamburg Rathaus')">Hamburg Rathaus</div>
+                            <div class="text-orange-600 cursor-pointer hover:bg-orange-100 p-1 rounded" onclick="useExample('Berlin Brandenburger Tor')">Berlin Brandenburger Tor</div>
+                            <div class="text-orange-600 cursor-pointer hover:bg-orange-100 p-1 rounded" onclick="useExample('München Marienplatz')">München Marienplatz</div>
+                        </div>
+                        <div class="space-y-1">
+                            <div class="text-orange-600 cursor-pointer hover:bg-orange-100 p-1 rounded" onclick="useExample('Köln Dom')">Köln Dom</div>
+                            <div class="text-orange-600 cursor-pointer hover:bg-orange-100 p-1 rounded" onclick="useExample('Frankfurt Römer')">Frankfurt Römer</div>
+                            <div class="text-orange-600 cursor-pointer hover:bg-orange-100 p-1 rounded" onclick="useExample('Dresden Frauenkirche')">Dresden Frauenkirche</div>
+                        </div>
+                    </div>
+                    <div class="mt-2 pt-2 border-t border-orange-200">
+                        <div class="font-medium text-orange-700 mb-1">🌍 Internationale Orte:</div>
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-1 text-xs">
+                            <div class="text-orange-600 cursor-pointer hover:bg-orange-100 p-1 rounded" onclick="useExample('Times Square, New York')">Times Square, New York</div>
+                            <div class="text-orange-600 cursor-pointer hover:bg-orange-100 p-1 rounded" onclick="useExample('Eiffelturm, Paris')">Eiffelturm, Paris</div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="mgrs-examples" class="mt-3 bg-red-50 border border-red-200 rounded-lg p-3 hidden">
+                    <div class="font-medium text-red-700 mb-2">🌐 MGRS-Formate:</div>
+                    <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 text-xs">
+                        <div class="space-y-1">
+                            <div class="text-red-600 cursor-pointer hover:bg-red-100 p-1 rounded" onclick="useExample('32U MV 12345 67890')">32U MV 12345 67890</div>
+                            <div class="text-red-600 cursor-pointer hover:bg-red-100 p-1 rounded" onclick="useExample('33T HJ 12345 67890')">33T HJ 12345 67890</div>
+                        </div>
+                        <div class="space-y-1">
+                            <div class="text-red-600 cursor-pointer hover:bg-red-100 p-1 rounded" onclick="useExample('11S KU 12345 12345')">11S KU 12345 12345</div>
+                            <div class="text-red-600 cursor-pointer hover:bg-red-100 p-1 rounded" onclick="useExample('54S WB 12345 67890')">54S WB 12345 67890</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Convert Button -->
+            <div class="text-center mt-6 sm:mt-8">
+                <button onclick="convertCoordinates()" class="w-full sm:w-auto bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 text-white px-6 sm:px-8 py-3 sm:py-4 rounded-lg font-bold text-base sm:text-lg shadow-lg transform hover:scale-105 transition-all">
+                    🔄 Koordinaten umrechnen & auf Karte anzeigen
+                </button>
+            </div>
+        </div>
+
+        <!-- Results Display -->
+        <div id="results-section" class="card p-4 sm:p-6 mb-6 sm:mb-8 hidden fade-in">
+            <h2 class="text-xl sm:text-2xl font-bold text-gray-800 mb-4 sm:mb-6 text-center sm:text-left">📊 Umrechnungsergebnisse</h2>
+            <div id="conversion-results" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+                <!-- Results will be populated here -->
+                <div id="mgrs-result-card" class="bg-red-50 border border-red-200 rounded-lg p-3 sm:p-4 hidden">
+                    <h3 class="font-bold text-red-800 mb-2 text-sm sm:text-base"> MGRS</h3>
+                    <div class="coordinate-display text-red-700"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Map Section -->
+        <div class="card p-4 sm:p-6 mb-6 sm:mb-8">
+            <div class="flex flex-col sm:flex-row sm:justify-between sm:items-center mb-4 sm:mb-6 gap-4">
+                <h2 class="text-xl sm:text-2xl font-bold text-gray-800 text-center sm:text-left">🗺️ Interaktive Karte</h2>
+                <div class="flex flex-wrap justify-center sm:justify-end gap-2">
+                    <a href="mgrs_map.html" class="bg-green-600 hover:bg-green-700 text-white px-3 sm:px-4 py-2 rounded-lg text-sm font-medium">
+                        🗺️ MGRS Rasterkarte öffnen
+                    </a>
+                    <button onclick="printCoordinates()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 sm:px-4 py-2 rounded-lg text-sm font-medium">
+                        🖨️ Drucken
+                    </button>
+                    <button onclick="clearMap()" class="bg-gray-600 hover:bg-gray-700 text-white px-3 sm:px-4 py-2 rounded-lg text-sm font-medium">
+                        🗑️ Karte leeren
+                    </button>
+                </div>
+            </div>
+            <div id="map" class="shadow-lg rounded-lg"></div>
+            <div class="mt-3 sm:mt-4 text-xs sm:text-sm text-gray-600 bg-blue-50 p-3 rounded-lg">
+                <p class="text-center sm:text-left">
+                    <span class="font-medium">💡 Tipp:</span>
+                    <span class="block sm:inline sm:ml-1">Klicken Sie auf die Karte, um Koordinaten zu ermitteln und zu laden.</span>
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Hidden Print Content -->
+    <div class="print-content" id="print-content">
+        <!-- Print content will be generated here -->
+    </div>
+
+    <script src="script.js"></script>
+
+    <footer class="bg-gray-800 text-gray-200 py-4 mt-12">
+        <div class="container mx-auto text-center text-sm">
+            © <span id="current-year"></span> Christian Sievers – Alle Rechte vorbehalten.
+            <a href="mailto:Christian@Home-Sievers.de"
+               class="ml-2 underline hover:text-gray-100">
+                Kontakt per E-Mail
+            </a>
+        </div>
+    </footer>
+</body>
+</html>
