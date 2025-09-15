@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MGRS Rasterkarte</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="mgrs_style.css">
+</head>
+<body>
+    <div class="header">
+        <h1>MGRS Rasterkarte</h1>
+        <div class="search-container">
+            <input type="text" id="universal-input" placeholder="Adresse, Ort oder Koordinaten..." oninput="analyzeInput()">
+            <button onclick="performSearch()">Suchen</button>
+            <div id="suggestions" class="suggestions-container"></div>
+        </div>
+        <div class="header-links">
+            <button id="print-button">Drucken</button>
+            <a href="index.html" class="header-link">Zurück zum Rechner</a>
+        </div>
+    </div>
+    <div id="map"></div>
+    <div id="location-display"></div>
+    <div id="print-container" style="display:none;"></div>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/proj4js/2.7.5/proj4.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mgrs@2.1.0/dist/mgrs.min.js"></script>
+    <script src="shared_utils.js"></script>
+    <script src="L.DumbMGRS.js"></script>
+    <script src="mgrs_script.js"></script>
+</body>
+</html>
