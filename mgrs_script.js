@@ -337,6 +337,39 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
+function waitForLayers(activeTileLayer, timeout = 10000) {
+    return new Promise((resolve, reject) => {
+        const masterTimeout = setTimeout(() => {
+            reject(new Error("Layer loading timed out."));
+        }, timeout);
+
+        let tileLayerLoaded = false;
+
+        const onTileLoad = () => {
+            tileLayerLoaded = true;
+            // The grid layers redraw on moveend, so we just need to wait a moment after that
+            // for the browser to render the SVGs.
+            setTimeout(() => {
+                clearTimeout(masterTimeout);
+                activeTileLayer.off('load', onTileLoad);
+                resolve();
+            }, 500); // 500ms safeguard for grid rendering
+        };
+
+        activeTileLayer.on('load', onTileLoad);
+
+        // Force a redraw of all layers
+        map.invalidateSize();
+        map.fire('moveend');
+
+        // If the tile layer is already loaded (e.g., from cache), the 'load' event may not fire.
+        // We can check its loading state. The _loading property is internal but effective here.
+        if (!activeTileLayer._loading) {
+            onTileLoad();
+        }
+    });
+}
+
 // === DRUCKFUNKTION ===
 async function printMap() {
     const printContainer = document.getElementById('print-container');
@@ -348,6 +381,14 @@ async function printMap() {
     document.body.classList.add('printing', printClass);
 
     try {
+        // Step 1: Wait for all layers to be ready
+        console.log("Waiting for layers to load...");
+        const activeTileLayer = map.hasLayer(topoLayer) ? topoLayer : osmLayer;
+        await waitForLayers(activeTileLayer);
+
+        console.log("Layers loaded, generating canvas...");
+
+        // Step 2: Generate the canvas from the map
         const canvas = await html2canvas(mapElement, {
             useCORS: true,
             logging: false,
@@ -356,6 +397,7 @@ async function printMap() {
 
         const mapImageUrl = canvas.toDataURL('image/png');
 
+        // Step 3: Construct the print layout
         let coordsInfo = '';
         const center = map.getCenter();
         if (currentMarker) {
@@ -373,7 +415,6 @@ async function printMap() {
         const scaleWidth = document.querySelector('.leaflet-control-scale-line').style.width;
         const northArrowSvg = document.querySelector('.leaflet-control-north').innerHTML;
 
-        // Construct the new print layout
         printContainer.innerHTML = `
             <div class="print-map-wrapper">
                 <img id="print-map-image" src="${mapImageUrl}" />
@@ -395,7 +436,7 @@ async function printMap() {
 
         printContainer.style.display = 'block';
 
-        // Wait a bit for the content to render before printing
+        // Step 4: Trigger the browser's print dialog
         setTimeout(() => {
             window.print();
             // Clean up after printing
