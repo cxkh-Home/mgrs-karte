@@ -276,9 +276,6 @@ function updateLocationDisplay() {
     `;
 }
 
-map.on('move', updateLocationDisplay);
-map.on('click', (e) => showOnMap(e.latlng.lat, e.latlng.lng));
-
 document.addEventListener('DOMContentLoaded', function() {
     // Initialize the map
     map = L.map('map').setView([51.1657, 10.4515], 6);
