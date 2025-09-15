@@ -1,6 +1,5 @@
 let currentMarker;
-// Initialize the map
-const map = L.map('map').setView([51.1657, 10.4515], 6); // Centered on Germany
+let map;
 
 // --- Base Layers ---
 const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -20,9 +19,6 @@ const hybridLayer = L.tileLayer('http://{s}.google.com/vt/lyrs=s,h&x={x}&y={y}&z
 const topoLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
 	attribution: 'Map data: &copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors, <a href="http://viewfinderpanoramas.org">SRTM</a> | Map style: &copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)'
 });
-
-// Add default layer to map
-osmLayer.addTo(map);
 
 // As mentioned in a previous step, the MGRS100K and MGRS1000Meters classes
 // have a dependency on a global 'generateGZDGrids' variable. I will define it here.
@@ -230,97 +226,7 @@ function selectAddress(address, lat, lng) {
     showOnMap(lat, lng);
 }
 
-// === FORMAT-ERKENNUNG (von script.js) ===
-function isGPSFormat(value) {
-    const patterns = [
-        /^-?\d+\.?\d*\s*,\s*-?\d+\.?\d*$/,
-        /^-?\d+\.?\d*\s+-?\d+\.?\d*$/,
-        /^-?\d+,\d+\s*[,;]\s*-?\d+,\d+$/,
-        /^lat(?:itude)?:?\s*-?\d+\.?\d*\s*,?\s*lng?(?:ongitude)?:?\s*-?\d+\.?\d*$/i,
-        /^\d+[°]\s*\d+['\s]*\d*\.?\d*["\s]*[NSEW]\s*,?\s*\d+[°]\s*\d+['\s]*\d*\.?\d*["\s]*[NSEW]$/i,
-    ];
-    return patterns.some(pattern => pattern.test(value));
-}
-
-function isMGRSFormat(value) {
-    const pattern = /^\d{1,2}[A-Z]\s+[A-Z]{2}\s+\d{1,5}\s+\d{1,5}$/i;
-    return pattern.test(value);
-}
-
-function isUTMFormat(value) {
-    const patterns = [
-        /^\d{1,2}[A-Z]\s+\d{5,7}\s+\d{6,8}$/i,
-        /^zone:?\s*\d{1,2}[A-Z]\s+\d{5,7}\s+\d{6,8}$/i,
-    ];
-    return patterns.some(pattern => pattern.test(value));
-}
-
-// === KOORDINATEN-PARSING (von script.js) ===
-function parseGPSCoordinates(value) {
-    let normalized = value.trim().replace(/,/g, '.');
-    if (value.includes(',') && !value.includes('.')) {
-         normalized = value.replace(/,/, ' ');
-    }
-     const parts = normalized.split(/[\s.]+/);
-    if (parts.length > 2 && (normalized.match(/\./g) || []).length > 1 ) {
-        normalized = value.replace(',', '.');
-    }
-
-    const decimalPatterns = [
-        /^(-?\d+\.?\d*)\s*(-?\d+\.?\d*)$/,
-        /^(-?\d+\.?\d*)\s+(-?\d+\.?\d*)$/,
-        /^lat(?:itude)?:?\s*(-?\d+\.?\d*)\s*,?\s*lng?(?:ongitude)?:?\s*(-?\d+\.?\d*)$/i,
-    ];
-
-    for (const pattern of decimalPatterns) {
-        const match = normalized.match(pattern);
-        if (match) {
-            let lat = parseFloat(match[1]);
-            let lng = parseFloat(match[2]);
-            if (Math.abs(lat) < 90 && Math.abs(lng) > 90) {
-                [lat, lng] = [lng, lat];
-            }
-            return { lat, lng };
-        }
-    }
-
-    const dmsPattern = /^(\d+)[°]\s*(\d+)['\s]*(\d*\.?\d*)["\s]*([NSEW])\s*,?\s*(\d+)[°]\s*(\d+)['\s]*(\d*\.?\d*)["\s]*([NSEW])$/i;
-    const dmsMatch = value.match(dmsPattern);
-    if (dmsMatch) {
-        let lat = parseInt(dmsMatch[1]) + parseInt(dmsMatch[2])/60 + parseFloat(dmsMatch[3] || 0)/3600;
-        let lng = parseInt(dmsMatch[5]) + parseInt(dmsMatch[6])/60 + parseFloat(dmsMatch[7] || 0)/3600;
-        if (dmsMatch[4].toUpperCase() === 'S') lat = -lat;
-        if (dmsMatch[8].toUpperCase() === 'W') lng = -lng;
-        return { lat, lng };
-    }
-
-    return null;
-}
-
-function parseUTMCoordinates(value) {
-    const match = value.match(/^(\d{1,2})([A-Z])\s+(\d{5,7})\s+(\d{6,8})$/i);
-    if (match) {
-        return {
-            zone: match[1] + match[2].toUpperCase(),
-            easting: parseInt(match[3]),
-            northing: parseInt(match[4])
-        };
-    }
-    return null;
-}
-
-function utmToLatLng(zone, easting, northing) {
-    const zoneNum = parseInt(zone.slice(0, -1));
-    const band = zone.slice(-1);
-    const isNorthern = band >= 'N';
-    const epsgCode = isNorthern ? `EPSG:${32600 + zoneNum}` : `EPSG:${32700 + zoneNum}`;
-    const gpsCoords = proj4(epsgCode, 'EPSG:4326', [easting, northing]);
-    return { lat: gpsCoords[1], lng: gpsCoords[0] };
-}
-
-function isValidCoordinates(lat, lng) {
-    return !isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180;
-}
+// Functions like isGPSFormat, parseGPSCoordinates, etc., are now in shared_utils.js
 
     // --- North Arrow Control ---
     const north = L.control({ position: "topright" });
@@ -331,15 +237,6 @@ function isValidCoordinates(lat, lng) {
     }
     north.addTo(map);
 
-    // --- Print Control ---
-    L.easyPrint({
-        title: 'Karte drucken',
-        position: 'topleft',
-        sizeModes: ['A4Portrait', 'A4Landscape', 'Current'],
-        exportOnly: false,
-        hideClasses: ['leaflet-control-layers'], // Hide the layer control in the print
-        hideControlContainer: true
-    }).addTo(map);
 }
 
 function showOnMap(lat, lng) {
@@ -396,12 +293,21 @@ map.on('move', updateLocationDisplay);
 map.on('click', (e) => showOnMap(e.latlng.lat, e.latlng.lng));
 
 document.addEventListener('DOMContentLoaded', function() {
+    // Initialize the map
+    map = L.map('map').setView([51.1657, 10.4515], 6);
+    osmLayer.addTo(map);
+
+    // Set up event listeners that depend on the map
+    map.on('move', updateLocationDisplay);
+    map.on('click', (e) => showOnMap(e.latlng.lat, e.latlng.lng));
+
+    // Initialize other components
     initProjections();
     addMgrsGrids();
     handleUrlParameters();
     updateLocationDisplay();
 
-    // Hide suggestions when clicking outside
+    // Set up UI event listeners
     document.addEventListener('click', function(e) {
         const container = document.querySelector('.search-container');
         if (container && !container.contains(e.target)) {
