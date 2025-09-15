@@ -95,45 +95,81 @@ body, html {
 }
 
 @media print {
-    /* Hide the main application and show only the print container */
-    body, html {
-        height: auto;
+    @page {
+        size: A4 portrait;
+        margin: 1cm;
     }
-    .header, #map, #location-display, .leaflet-control-container {
+
+    body, html {
+        height: 100%;
+        width: 100%;
+        margin: 0;
+        padding: 0;
+    }
+
+    /* Hide the main application and show only the print container */
+    .header, #map, #location-display, .leaflet-control-container, #print-button {
         display: none !important;
     }
+
     #print-container {
-        display: block !important;
+        display: flex !important;
+        flex-direction: column;
+        height: 100%;
+        width: 100%;
+        box-sizing: border-box;
     }
 }
 
 #print-container {
     font-family: Arial, sans-serif;
     color: #333;
-    width: 210mm;
-    margin: 0 auto;
-    padding: 10mm;
+    display: none; /* Hidden by default, shown by JS */
+}
+
+.print-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 10px;
+    flex-shrink: 0;
+}
+
+.print-header-left p {
+    margin: 0;
+    font-size: 10px;
+}
+
+.print-title {
+    font-size: 24px;
+    font-weight: bold;
+    text-align: center;
+    flex-grow: 1;
 }
 
 .print-map-wrapper {
     position: relative;
-    margin-bottom: 20px;
     border: 1px solid #ccc;
+    flex-grow: 1; /* This makes the map take up available space */
+    display: flex; /* Allow image to fill this container */
 }
 
 #print-map-image {
     width: 100%;
+    height: 100%;
+    object-fit: cover; /* or 'contain' depending on desired outcome */
 }
 
 #print-north-arrow {
     position: absolute;
-    top: 20px;
-    right: 20px;
-    width: 50px;
-    height: 50px;
+    top: 15px;
+    right: 15px;
+    width: 60px; /* Slightly larger */
+    height: 60px;
     background: rgba(255, 255, 255, 0.7);
-    border-radius: 50%;
+    border-radius: 5px;
     padding: 5px;
+    box-shadow: 0 0 5px rgba(0,0,0,0.5);
 }
 
 #print-north-arrow svg {
@@ -143,19 +179,31 @@ body, html {
 
 #print-scale-bar {
     position: absolute;
-    bottom: 20px;
-    left: 20px;
+    bottom: 15px;
+    left: 50%;
+    transform: translateX(-50%);
     background: rgba(255, 255, 255, 0.8);
-    padding: 2px 5px;
+    padding: 3px 8px;
     border: 1px solid #333;
-    border-top: 2px solid #333;
 }
 
-.print-info h2 {
-    font-size: 16px;
-    border-bottom: 1px solid #ccc;
-    padding-bottom: 5px;
-    margin-top: 0;
+.print-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-top: 10px;
+    font-size: 9px;
+    flex-shrink: 0;
+}
+
+.print-info p {
+    margin: 0 0 2px 0;
+}
+
+.print-logo {
+    font-weight: bold;
+    font-size: 22px;
+    color: #007CC3; /* A Garmin-like blue */
 }
 
 body.printing::after {
