@@ -440,15 +440,17 @@ function generateMarginalia(map, gridInterval = 1000) {
     // --- Generate Easting (Vertical) Grid Labels ---
     const firstEasting = Math.floor(swUtm.easting / gridInterval) * gridInterval;
     for (let e = firstEasting; e <= neUtm.easting; e += gridInterval) {
-        // We need to find where this easting line intersects the map's top/bottom edges
         const topPoint = UTMtoLL({easting: e, northing: neUtm.northing, zoneNumber: zone, zoneLetter: zoneLetter});
+        if (!topPoint || isNaN(topPoint.lat) || isNaN(topPoint.lon)) continue;
+
         const bottomPoint = UTMtoLL({easting: e, northing: swUtm.northing, zoneNumber: zone, zoneLetter: zoneLetter});
+        if (!bottomPoint || isNaN(bottomPoint.lat) || isNaN(bottomPoint.lon)) continue;
 
         if (bounds.contains(topPoint) || bounds.contains(bottomPoint)) {
-            const labelText = (e / 1000).toString(); // e.g. "433" for 433000m
+            const labelText = (e / 1000).toString();
             const pos = map.latLngToContainerPoint(topPoint);
+            if (isNaN(pos.x) || isNaN(pos.y)) continue;
 
-            // Add labels to top and bottom margins
             labelsHtml += `<div class="grid-label" style="left: ${pos.x}px; top: -1.2em;">${labelText.slice(-2)}</div>`;
             labelsHtml += `<div class="grid-label" style="left: ${pos.x}px; bottom: -1.2em;">${labelText.slice(-2)}</div>`;
         }
@@ -458,13 +460,16 @@ function generateMarginalia(map, gridInterval = 1000) {
     const firstNorthing = Math.floor(swUtm.northing / gridInterval) * gridInterval;
      for (let n = firstNorthing; n <= neUtm.northing; n += gridInterval) {
         const leftPoint = UTMtoLL({easting: swUtm.easting, northing: n, zoneNumber: zone, zoneLetter: zoneLetter});
+        if (!leftPoint || isNaN(leftPoint.lat) || isNaN(leftPoint.lon)) continue;
+
         const rightPoint = UTMtoLL({easting: neUtm.easting, northing: n, zoneNumber: zone, zoneLetter: zoneLetter});
+        if (!rightPoint || isNaN(rightPoint.lat) || isNaN(rightPoint.lon)) continue;
 
         if (bounds.contains(leftPoint) || bounds.contains(rightPoint)) {
             const labelText = (n / 1000).toString();
             const pos = map.latLngToContainerPoint(leftPoint);
+            if (isNaN(pos.x) || isNaN(pos.y)) continue;
 
-            // Add labels to left and right margins
             labelsHtml += `<div class="grid-label" style="top: ${pos.y}px; left: -2em;">${labelText.slice(-2)}</div>`;
             labelsHtml += `<div class="grid-label" style="top: ${pos.y}px; right: -2em;">${labelText.slice(-2)}</div>`;
         }
@@ -554,7 +559,7 @@ async function printMap() {
                         <div class="scale-label">${scaleText}</div>
                     </div>
                     <div class="print-info" style="text-align: right;">
-                        <p>Maßstab ca. 1:${(1 / (map.getResolution().x * 96 * 39.37)).toFixed(0)}</p>
+                        <!-- The manual scale calculation was removed due to a bug -->
                     </div>
                 </div>
             </div>`;
