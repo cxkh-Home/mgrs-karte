@@ -482,7 +482,7 @@ async function printMap() {
     const printContainer = document.getElementById('print-container');
     const mapElement = document.getElementById('map');
     const paperSize = 'a4';
-    const printClass = `print-${paperSize}`;
+    const printClass = `print-a4`; // Simplified, can be extended later
 
     const originalView = {
         center: map.getCenter(),
@@ -491,69 +491,63 @@ async function printMap() {
 
     document.body.classList.add('printing', printClass);
 
-    try {
-        // --- 1. Measure Target Frame Aspect Ratio ---
-        // Create a minimal layout first to ensure the map-frame element exists for measurement.
+    // This function measures the print frame's aspect ratio.
+    const measureFrame = () => new Promise((resolve, reject) => {
         printContainer.innerHTML = '<div class="print-page"><div class="map-frame"></div></div>';
-        // Temporarily show the container off-screen to measure it
-        printContainer.style.visibility = 'hidden';
         printContainer.style.display = 'block';
-        const mapFrame = printContainer.querySelector('.map-frame');
-        const targetWidth = mapFrame.clientWidth;
-        const targetHeight = mapFrame.clientHeight;
-        printContainer.style.display = 'none';
-        printContainer.style.visibility = 'visible';
+        printContainer.style.visibility = 'hidden';
 
-        if (targetHeight === 0) {
-            throw new Error("Could not determine print frame size.");
-        }
-        const targetAspectRatio = targetWidth / targetHeight;
+        requestAnimationFrame(() => {
+            const mapFrame = printContainer.querySelector('.map-frame');
+            if (!mapFrame || mapFrame.clientHeight === 0) {
+                reject(new Error("Could not determine print frame size."));
+                return;
+            }
+            resolve(mapFrame.clientWidth / mapFrame.clientHeight);
+        });
+    });
 
-        // --- 2. Adjust Map Bounds to Match Aspect Ratio ---
+    try {
+        const targetAspectRatio = await measureFrame();
+
+        // Adjust map bounds to fit the target aspect ratio
         const currentBounds = map.getBounds();
         const center = currentBounds.getCenter();
-        let north = currentBounds.getNorth();
-        let south = currentBounds.getSouth();
-        let east = currentBounds.getEast();
-        let west = currentBounds.getWest();
-
-        const currentLatDist = north - south;
-        const currentLngDist = east - west;
-        const currentAspectRatio = currentLngDist / currentLatDist;
+        let north = currentBounds.getNorth(), south = currentBounds.getSouth();
+        let east = currentBounds.getEast(), west = currentBounds.getWest();
+        const currentAspectRatio = (east - west) / (north - south);
 
         if (Math.abs(targetAspectRatio - currentAspectRatio) > 0.01) {
             if (currentAspectRatio < targetAspectRatio) {
-                // Map is too "tall", need to widen it (increase lng dist)
-                const newLngDist = currentLatDist * targetAspectRatio;
-                const lngAdjust = (newLngDist - currentLngDist) / 2;
+                const newLngDist = (north - south) * targetAspectRatio;
+                const lngAdjust = (newLngDist - (east - west)) / 2;
                 west -= lngAdjust;
                 east += lngAdjust;
             } else {
-                // Map is too "wide", need to heighten it (increase lat dist)
-                const newLatDist = currentLngDist / targetAspectRatio;
-                const latAdjust = (newLatDist - currentLatDist) / 2;
+                const newLatDist = (east - west) / targetAspectRatio;
+                const latAdjust = (newLatDist - (north - south)) / 2;
                 south -= latAdjust;
                 north += latAdjust;
             }
         }
 
         const adjustedBounds = L.latLngBounds(L.latLng(south, west), L.latLng(north, east));
-        map.fitBounds(adjustedBounds, { animate: false });
-
-        // --- 3. Render and Capture ---
+        map.fitBounds(adjustedBounds, { animate: false, padding: [0,0] });
         map.invalidateSize();
+
+        // Wait for layers and capture the map
         const overlayMaps = {
-            "GZD Gitter": generateGZDGrids,
-            "100km Gitter": generate100kGrids,
-            "1000m Gitter": generate1000meterGrids,
-            "100m Gitter": generate100meterGrids
+            "GZD Gitter": generateGZDGrids, "100km Gitter": generate100kGrids,
+            "1000m Gitter": generate1000meterGrids, "100m Gitter": generate100meterGrids
         };
         await waitForLayers(map, overlayMaps);
-
         const canvas = await html2canvas(mapElement, { useCORS: true, logging: false, scale: 3 });
         const mapImageUrl = canvas.toDataURL('image/png');
 
-        // --- 4. Build and Show Print Layout ---
+        // Restore view immediately after capture, before building final HTML
+        map.setView(originalView.center, originalView.zoom, { animate: false });
+
+        // Build final print layout
         const gzd = mgrs.forward([center.lng, center.lat]).substring(0, 3);
         const scaleText = document.querySelector('.leaflet-control-scale-line')?.innerText || '1 km';
         let scaleBarHtml = '<div class="scale-bar">' + Array(4).fill(0).map((_, i) => `<div class="scale-bar-segment ${i % 2 === 0 ? 'dark' : 'light'}"></div>`).join('') + '</div>';
@@ -582,14 +576,15 @@ async function printMap() {
             </div>`;
 
         printContainer.style.display = 'block';
+        printContainer.style.visibility = 'visible';
+
         setTimeout(() => window.print(), 500);
 
     } catch (error) {
         console.error('Printing failed:', error);
         alert('Fehler beim Erstellen der Druckvorschau: ' + error.message);
     } finally {
-        // --- 5. Restore Original View ---
-        map.setView(originalView.center, originalView.zoom, { animate: false });
+        // Final cleanup
         document.body.classList.remove('printing', printClass);
         printContainer.style.display = 'none';
         map.invalidateSize();
