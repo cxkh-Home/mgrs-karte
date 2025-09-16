@@ -307,62 +307,37 @@ document.addEventListener('DOMContentLoaded', function() {
         const layer = e.layer;
         editableLayers.addLayer(layer);
 
-        layer.on('click', () => {
-            // Only show the prompt if not in delete or edit mode
-            if (map.pm.globalRemovalModeEnabled() || map.pm.globalEditModeEnabled()) {
-                return;
-            }
+        // Only add the click-to-label functionality for Markers.
+        if (layer instanceof L.Marker) {
+            layer.on('click', () => {
+                // If in delete or edit mode, let Geoman handle the click.
+                if (map.pm.globalRemovalModeEnabled() || map.pm.globalEditModeEnabled()) {
+                    return;
+                }
 
-            const label = prompt("Enter label for this feature:");
-            // If the user cancels the prompt, don't do anything
-            if (label === null) {
-                return;
-            }
+                const label = prompt("Enter label for this marker:");
+                if (label === null) { // User cancelled
+                    return;
+                }
 
-            let content = label || ''; // Start with the label, or empty if none given
-
-            let measurement = '';
-            if (layer instanceof L.Polygon) {
-                const area = L.GeometryUtil.geodesicArea(layer.getLatLngs()[0]);
-                if (area > 10000) {
-                    measurement = `${(area / 10000).toFixed(2)} ha`;
+                if (label) {
+                    // If there's an existing tooltip, unbind it first.
+                    if (layer.getTooltip()) {
+                        layer.unbindTooltip();
+                    }
+                    layer.bindTooltip(label, {
+                        permanent: true,
+                        direction: 'top', // Better default for markers
+                        className: 'feature-label'
+                    }).openTooltip();
                 } else {
-                    measurement = `${area.toFixed(2)} m²`;
+                    // If the user enters an empty label, remove any existing tooltip.
+                    if (layer.getTooltip()) {
+                        layer.unbindTooltip();
+                    }
                 }
-            } else if (layer instanceof L.Polyline) {
-                let distance = 0;
-                const latlngs = layer.getLatLngs();
-                for (let i = 0; i < latlngs.length - 1; i++) {
-                    distance += latlngs[i].distanceTo(latlngs[i + 1]);
-                }
-                if (distance > 1000) {
-                    measurement = `${(distance / 1000).toFixed(2)} km`;
-                } else {
-                    measurement = `${distance.toFixed(2)} m`;
-                }
-            }
-
-            if (measurement) {
-                content += `<br><em>${measurement}</em>`;
-            }
-
-            // Only bind a tooltip if there's content to show.
-            if (content) {
-                 if (layer.getTooltip()) {
-                    layer.unbindTooltip();
-                }
-                layer.bindTooltip(content, {
-                    permanent: true,
-                    direction: 'center',
-                    className: 'feature-label'
-                }).openTooltip();
-            } else {
-                // If the user enters an empty label and there's no measurement, remove any existing tooltip.
-                if (layer.getTooltip()) {
-                    layer.unbindTooltip();
-                }
-            }
-        });
+            });
+        }
     });
 
     // Initialize other components
@@ -398,38 +373,32 @@ document.addEventListener('DOMContentLoaded', function() {
 // === DRUCKFUNKTION ===
 
 /**
- * Waits for all active map layers to finish rendering.
+ * Waits for all active MGRS grid layers to finish rendering.
  * This is crucial for ensuring the print output is not blank.
  * @param {L.Map} mapInstance The Leaflet map instance.
  * @param {object} overlayMaps The overlayMaps object from the layer control.
- * @returns {Promise<void>} A promise that resolves when all layers are ready.
+ * @returns {Promise<void>} A promise that resolves when all grid layers are ready.
  */
 function waitForLayers(mapInstance, overlayMaps) {
-    const activeLayers = [];
-    // Find the active base layer
-    mapInstance.eachLayer(layer => {
-        if (layer instanceof L.TileLayer) {
-            activeLayers.push(layer);
-        }
-    });
+    const activeGridLayers = [];
 
-    // Find active overlay layers
+    // Find active overlay layers that are MGRS grids
     for (const key in overlayMaps) {
         if (mapInstance.hasLayer(overlayMaps[key])) {
-            activeLayers.push(overlayMaps[key]);
+            activeGridLayers.push(overlayMaps[key]);
         }
     }
 
-    const promises = activeLayers.map(layer => {
-        return new Promise((resolve, reject) => {
-            // Set a timeout to prevent waiting forever if an event never fires.
-            const timer = setTimeout(() => reject(new Error(`Layer timed out: ${layer.options.attribution || 'Grid Layer'}`)), 10000);
+    // If no grid layers are active, we don't need to wait for anything.
+    if (activeGridLayers.length === 0) {
+        return Promise.resolve();
+    }
 
-            if (layer instanceof L.TileLayer) {
-                layer.once('load', () => { clearTimeout(timer); resolve(); });
-                // Trigger a redraw for tile layers
-                layer.redraw();
-            } else if (layer.options && typeof layer.getInBoundsGZDs === 'function') { // GZD Layer
+    const promises = activeGridLayers.map(layer => {
+        return new Promise((resolve, reject) => {
+            const timer = setTimeout(() => reject(new Error('MGRS grid layer render timed out.')), 10000);
+
+            if (layer.options && typeof layer.getInBoundsGZDs === 'function') { // GZD Layer
                 layer.once('rendercomplete', () => { clearTimeout(timer); resolve(); });
                 layer.getInBoundsGZDs(true); // force=true
             } else if (layer.options && typeof layer.getVizGrids === 'function') { // 100k Layer
@@ -439,7 +408,7 @@ function waitForLayers(mapInstance, overlayMaps) {
                 layer.once('rendercomplete', () => { clearTimeout(timer); resolve(); });
                 layer.regenerate(true); // force=true
             } else {
-                // For layers without a specific render event (like drawn shapes), resolve immediately.
+                // This case should not be hit if we only push valid MGRS grid layers
                 clearTimeout(timer);
                 resolve();
             }

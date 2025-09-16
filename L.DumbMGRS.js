@@ -1062,9 +1062,13 @@ const MGRS100K = L.LayerGroup.extend({
         acc[grid].push(this.empty[k]);
         return acc;
       }, {});
-      this.prepGrids(this.uniqueVisibleGrids);
-    } else {
+      // prepGrids now returns a promise, so we wait for it to resolve.
+      this.prepGrids(this.uniqueVisibleGrids).then(() => {
         this.fire('rendercomplete');
+      });
+    } else {
+      // If not in zoom range, fire complete immediately.
+      this.fire('rendercomplete');
     }
     return this;
   },
@@ -1076,6 +1080,7 @@ const MGRS100K = L.LayerGroup.extend({
 
     visibleGridsIterator.forEach((grid) => {
       const promise = new Promise((resolve) => {
+        // Use timeout to avoid blocking the main thread during heavy processing
         setTimeout(() => {
           this.generateGrids(grid);
           resolve();
@@ -1083,10 +1088,8 @@ const MGRS100K = L.LayerGroup.extend({
       });
       promises.push(promise);
     });
-
-    Promise.all(promises).then(() => {
-      this.fire('rendercomplete');
-    });
+    // Return the promise so the calling function knows when rendering is done.
+    return Promise.all(promises);
   },
 
   generateGrids(data) {
