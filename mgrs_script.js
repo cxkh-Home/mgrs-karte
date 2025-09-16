@@ -481,99 +481,116 @@ function generateMarginalia(map, gridInterval = 1000) {
 async function printMap() {
     const printContainer = document.getElementById('print-container');
     const mapElement = document.getElementById('map');
-    // The paper size selector was removed from the HTML, so we default to A4.
-    // The class 'print-a3' can be manually added for A3 if a selector is re-introduced.
     const paperSize = 'a4';
     const printClass = `print-${paperSize}`;
 
-    const overlayMaps = {
-        "GZD Gitter": generateGZDGrids,
-        "100km Gitter": generate100kGrids,
-        "1000m Gitter": generate1000meterGrids,
-        "100m Gitter": generate100meterGrids
+    const originalView = {
+        center: map.getCenter(),
+        zoom: map.getZoom()
     };
 
     document.body.classList.add('printing', printClass);
 
     try {
+        // --- 1. Measure Target Frame Aspect Ratio ---
+        // Temporarily show the container off-screen to measure it
+        printContainer.style.visibility = 'hidden';
+        printContainer.style.display = 'block';
+        const mapFrame = printContainer.querySelector('.map-frame');
+        if (!mapFrame) { // Failsafe
+             printContainer.innerHTML = '<div class="print-page"><div class="map-frame"></div></div>';
+        }
+        const targetWidth = mapFrame.clientWidth;
+        const targetHeight = mapFrame.clientHeight;
+        printContainer.style.display = 'none';
+        printContainer.style.visibility = 'visible';
+
+        if (targetHeight === 0) {
+            throw new Error("Could not determine print frame size.");
+        }
+        const targetAspectRatio = targetWidth / targetHeight;
+
+        // --- 2. Adjust Map Bounds to Match Aspect Ratio ---
+        const currentBounds = map.getBounds();
+        const center = currentBounds.getCenter();
+        let north = currentBounds.getNorth();
+        let south = currentBounds.getSouth();
+        let east = currentBounds.getEast();
+        let west = currentBounds.getWest();
+
+        const currentLatDist = north - south;
+        const currentLngDist = east - west;
+        const currentAspectRatio = currentLngDist / currentLatDist;
+
+        if (Math.abs(targetAspectRatio - currentAspectRatio) > 0.01) {
+            if (currentAspectRatio < targetAspectRatio) {
+                // Map is too "tall", need to widen it (increase lng dist)
+                const newLngDist = currentLatDist * targetAspectRatio;
+                const lngAdjust = (newLngDist - currentLngDist) / 2;
+                west -= lngAdjust;
+                east += lngAdjust;
+            } else {
+                // Map is too "wide", need to heighten it (increase lat dist)
+                const newLatDist = currentLngDist / targetAspectRatio;
+                const latAdjust = (newLatDist - currentLatDist) / 2;
+                south -= latAdjust;
+                north += latAdjust;
+            }
+        }
+
+        const adjustedBounds = L.latLngBounds(L.latLng(south, west), L.latLng(north, east));
+        map.fitBounds(adjustedBounds, { animate: false });
+
+        // --- 3. Render and Capture ---
         map.invalidateSize();
+        const overlayMaps = {
+            "GZD Gitter": generateGZDGrids,
+            "100km Gitter": generate100kGrids,
+            "1000m Gitter": generate1000meterGrids,
+            "100m Gitter": generate100meterGrids
+        };
         await waitForLayers(map, overlayMaps);
 
-        const canvas = await html2canvas(mapElement, {
-            useCORS: true,
-            logging: false,
-            scale: 3,
-        });
+        const canvas = await html2canvas(mapElement, { useCORS: true, logging: false, scale: 3 });
         const mapImageUrl = canvas.toDataURL('image/png');
 
-        const center = map.getCenter();
-        const mgrsString = mgrs.forward([center.lng, center.lat]);
-        const gzd = mgrsString.substring(0, 3); // Extract GZD, e.g., "18T"
-
-        const scaleControl = document.querySelector('.leaflet-control-scale-line');
-        const scaleText = scaleControl ? scaleControl.innerText : '1 km';
-
-        // --- Build Graphical Scale Bar ---
-        // This creates a 4-segment graphical scale bar.
-        let scaleBarHtml = '<div class="scale-bar">';
-        for(let i=0; i<4; i++) {
-            scaleBarHtml += `<div class="scale-bar-segment ${i % 2 === 0 ? 'dark' : 'light'}"></div>`;
-        }
-        scaleBarHtml += '</div>';
-
+        // --- 4. Build and Show Print Layout ---
+        const gzd = mgrs.forward([center.lng, center.lat]).substring(0, 3);
+        const scaleText = document.querySelector('.leaflet-control-scale-line')?.innerText || '1 km';
+        let scaleBarHtml = '<div class="scale-bar">' + Array(4).fill(0).map((_, i) => `<div class="scale-bar-segment ${i % 2 === 0 ? 'dark' : 'light'}"></div>`).join('') + '</div>';
         const northArrowSvg = document.querySelector('.leaflet-control-north').innerHTML;
+        const marginaliaHtml = generateMarginalia(map);
 
-        // This is where the new professional layout is constructed.
         printContainer.innerHTML = `
             <div class="print-page">
                 <div class="print-header">
-                    <div class="gzd-box">
-                        <p class="gzd-title">GRID ZONE DESIGNATION</p>
-                        <p class="gzd-value">${gzd}</p>
-                    </div>
-                    <div class="print-title">
-                        LAGEKARTE
-                    </div>
-                     <div class="print-info">
-                        <p>Datum: WGS 84</p>
-                        <p>Gedruckt am: ${new Date().toLocaleString('de-DE')}</p>
-                    </div>
+                    <div class="gzd-box"><p class="gzd-title">GRID ZONE</p><p class="gzd-value">${gzd}</p></div>
+                    <div class="print-title">LAGEKARTE</div>
+                    <div class="print-info"><p>Datum: WGS 84</p><p>Gedruckt: ${new Date().toLocaleString('de-DE')}</p></div>
                 </div>
-
                 <div class="map-frame">
                     <div class="map-content">
                         <img id="print-map-image" src="${mapImageUrl}">
                         <div id="print-north-arrow">${northArrowSvg}</div>
-                        <div class="grid-labels">
-                            ${generateMarginalia(map)}
-                        </div>
+                        <div class="grid-labels">${marginaliaHtml}</div>
                     </div>
                 </div>
-
                 <div class="print-footer">
-                    <div class="print-info">
-                        <p>Erstellt mit MGRS-Kartenwerkzeug</p>
-                    </div>
-                    <div class="graphical-scale">
-                        ${scaleBarHtml}
-                        <div class="scale-label">${scaleText}</div>
-                    </div>
-                    <div class="print-info" style="text-align: right;">
-                        <!-- The manual scale calculation was removed due to a bug -->
-                    </div>
+                    <div class="print-info"><p>MGRS-Kartenwerkzeug</p></div>
+                    <div class="graphical-scale">${scaleBarHtml}<div class="scale-label">${scaleText}</div></div>
+                    <div class="print-info"></div>
                 </div>
             </div>`;
 
         printContainer.style.display = 'block';
-
-        setTimeout(() => {
-            window.print();
-        }, 500);
+        setTimeout(() => window.print(), 500);
 
     } catch (error) {
         console.error('Printing failed:', error);
         alert('Fehler beim Erstellen der Druckvorschau: ' + error.message);
     } finally {
+        // --- 5. Restore Original View ---
+        map.setView(originalView.center, originalView.zoom, { animate: false });
         document.body.classList.remove('printing', printClass);
         printContainer.style.display = 'none';
         map.invalidateSize();
