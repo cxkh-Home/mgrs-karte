@@ -327,7 +327,7 @@ document.addEventListener('DOMContentLoaded', function() {
                     }
                     layer.bindTooltip(label, {
                         permanent: true,
-                        direction: 'top', // Better default for markers
+                        direction: 'center',
                         className: 'feature-label'
                     }).openTooltip();
                 } else {
@@ -422,7 +422,7 @@ function waitForLayers(mapInstance, overlayMaps) {
 async function printMap() {
     const printContainer = document.getElementById('print-container');
     const mapElement = document.getElementById('map');
-    const paperSize = document.getElementById('paper-size-select').value;
+    const paperSize = 'a4'; // Hardcode to a4 since the selector was removed.
     const printClass = `print-${paperSize}`;
     const overlayMaps = {
         "GZD Gitter": generateGZDGrids,

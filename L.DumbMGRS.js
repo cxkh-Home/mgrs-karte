@@ -254,6 +254,12 @@ function UTMtoLL(utm) {
   let lon = (D - (1 + 2 * T1 + C1) * D * D * D / 6 + (5 - 2 * C1 + 28 * T1 - 3 * C1 * C1 + 8 * eccPrimeSquared + 24 * T1 * T1) * D * D * D * D * D / 120) / Math.cos(phi1Rad);
   lon = LongOrigin + radToDeg(lon);
 
+  // Add validation to prevent Leaflet from crashing on invalid coordinates.
+  if (isNaN(lat) || isNaN(lon)) {
+    console.error('Invalid coordinate calculation in UTMtoLL:', utm);
+    return { lat: 0, lon: 0 }; // Return a safe default
+  }
+
   let result;
   if (typeof utm.accuracy === 'number') {
     const topRight = UTMtoLL({
