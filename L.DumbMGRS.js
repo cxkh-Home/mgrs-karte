@@ -2046,9 +2046,8 @@ const MGRS1000Meters = L.LayerGroup.extend({
       case 12:
         return 0.04;
       default:
-        break;
+        return 0; // Always return a number
     }
-    return this;
   },
 });
 
@@ -2450,9 +2449,8 @@ const MGRS100Meters = L.LayerGroup.extend({
       case 12:
         return 0.04;
       default:
-        break;
+        return 0; // Always return a number
     }
-    return this;
   },
 });
 

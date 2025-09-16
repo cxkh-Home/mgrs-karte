@@ -493,13 +493,12 @@ async function printMap() {
 
     try {
         // --- 1. Measure Target Frame Aspect Ratio ---
+        // Create a minimal layout first to ensure the map-frame element exists for measurement.
+        printContainer.innerHTML = '<div class="print-page"><div class="map-frame"></div></div>';
         // Temporarily show the container off-screen to measure it
         printContainer.style.visibility = 'hidden';
         printContainer.style.display = 'block';
         const mapFrame = printContainer.querySelector('.map-frame');
-        if (!mapFrame) { // Failsafe
-             printContainer.innerHTML = '<div class="print-page"><div class="map-frame"></div></div>';
-        }
         const targetWidth = mapFrame.clientWidth;
         const targetHeight = mapFrame.clientHeight;
         printContainer.style.display = 'none';
