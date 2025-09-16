@@ -419,11 +419,68 @@ function waitForLayers(mapInstance, overlayMaps) {
 }
 
 
+function generateMarginalia(map, gridInterval = 1000) {
+    const bounds = map.getBounds();
+    const sw = bounds.getSouthWest();
+    const ne = bounds.getNorthEast();
+
+    // Convert corner coordinates to UTM
+    const swUtm = LLtoUTM({ lat: sw.lat, lon: sw.lng });
+    const neUtm = LLtoUTM({ lat: ne.lat, lon: ne.lng });
+
+    // Important: We need a consistent zone for calculation across the map view.
+    // We'll use the zone of the map's center.
+    const centerUtm = LLtoUTM(map.getCenter());
+    const zone = centerUtm.zoneNumber;
+    const zoneLetter = centerUtm.zoneLetter;
+
+    let labelsHtml = '';
+    const mapSize = map.getSize(); // The pixel dimensions of the map container
+
+    // --- Generate Easting (Vertical) Grid Labels ---
+    const firstEasting = Math.floor(swUtm.easting / gridInterval) * gridInterval;
+    for (let e = firstEasting; e <= neUtm.easting; e += gridInterval) {
+        // We need to find where this easting line intersects the map's top/bottom edges
+        const topPoint = UTMtoLL({easting: e, northing: neUtm.northing, zoneNumber: zone, zoneLetter: zoneLetter});
+        const bottomPoint = UTMtoLL({easting: e, northing: swUtm.northing, zoneNumber: zone, zoneLetter: zoneLetter});
+
+        if (bounds.contains(topPoint) || bounds.contains(bottomPoint)) {
+            const labelText = (e / 1000).toString(); // e.g. "433" for 433000m
+            const pos = map.latLngToContainerPoint(topPoint);
+
+            // Add labels to top and bottom margins
+            labelsHtml += `<div class="grid-label" style="left: ${pos.x}px; top: -1.2em;">${labelText.slice(-2)}</div>`;
+            labelsHtml += `<div class="grid-label" style="left: ${pos.x}px; bottom: -1.2em;">${labelText.slice(-2)}</div>`;
+        }
+    }
+
+    // --- Generate Northing (Horizontal) Grid Labels ---
+    const firstNorthing = Math.floor(swUtm.northing / gridInterval) * gridInterval;
+     for (let n = firstNorthing; n <= neUtm.northing; n += gridInterval) {
+        const leftPoint = UTMtoLL({easting: swUtm.easting, northing: n, zoneNumber: zone, zoneLetter: zoneLetter});
+        const rightPoint = UTMtoLL({easting: neUtm.easting, northing: n, zoneNumber: zone, zoneLetter: zoneLetter});
+
+        if (bounds.contains(leftPoint) || bounds.contains(rightPoint)) {
+            const labelText = (n / 1000).toString();
+            const pos = map.latLngToContainerPoint(leftPoint);
+
+            // Add labels to left and right margins
+            labelsHtml += `<div class="grid-label" style="top: ${pos.y}px; left: -2em;">${labelText.slice(-2)}</div>`;
+            labelsHtml += `<div class="grid-label" style="top: ${pos.y}px; right: -2em;">${labelText.slice(-2)}</div>`;
+        }
+    }
+
+    return labelsHtml;
+}
+
 async function printMap() {
     const printContainer = document.getElementById('print-container');
     const mapElement = document.getElementById('map');
-    const paperSize = 'a4'; // Hardcode to a4 since the selector was removed.
+    // The paper size selector was removed from the HTML, so we default to A4.
+    // The class 'print-a3' can be manually added for A3 if a selector is re-introduced.
+    const paperSize = 'a4';
     const printClass = `print-${paperSize}`;
+
     const overlayMaps = {
         "GZD Gitter": generateGZDGrids,
         "100km Gitter": generate100kGrids,
@@ -431,54 +488,79 @@ async function printMap() {
         "100m Gitter": generate100meterGrids
     };
 
-
     document.body.classList.add('printing', printClass);
 
     try {
-        // Force a redraw of the map to get it into the print layout
         map.invalidateSize();
-
-        console.log("Waiting for layers to render...");
-        // This is the key change: wait for our layers to be ready.
         await waitForLayers(map, overlayMaps);
-        console.log("All layers rendered, generating canvas...");
 
         const canvas = await html2canvas(mapElement, {
             useCORS: true,
             logging: false,
-            scale: 3, // High resolution
+            scale: 3,
         });
         const mapImageUrl = canvas.toDataURL('image/png');
 
-        let coordsInfo = '';
         const center = map.getCenter();
-        if (currentMarker) {
-            const markerLatLng = currentMarker.getLatLng();
-            coordsInfo = `<strong>Markierte Position:</strong><br>GPS: ${markerLatLng.lat.toFixed(6)}, ${markerLatLng.lng.toFixed(6)}<br>MGRS: ${mgrs.forward([markerLatLng.lng, markerLatLng.lat])}`;
-        } else {
-            coordsInfo = `<strong>Kartenmitte:</strong><br>GPS: ${center.lat.toFixed(5)}, ${center.lng.toFixed(5)}<br>MGRS: ${mgrs.forward([center.lng, center.lat], 5)}`;
-        }
+        const mgrsString = mgrs.forward([center.lng, center.lat]);
+        const gzd = mgrsString.substring(0, 3); // Extract GZD, e.g., "18T"
 
-        const scaleLabel = document.querySelector('.leaflet-control-scale-line').innerText;
-        const scaleWidth = document.querySelector('.leaflet-control-scale-line').style.width;
+        const scaleControl = document.querySelector('.leaflet-control-scale-line');
+        const scaleText = scaleControl ? scaleControl.innerText : '1 km';
+
+        // --- Build Graphical Scale Bar ---
+        // This creates a 4-segment graphical scale bar.
+        let scaleBarHtml = '<div class="scale-bar">';
+        for(let i=0; i<4; i++) {
+            scaleBarHtml += `<div class="scale-bar-segment ${i % 2 === 0 ? 'dark' : 'light'}"></div>`;
+        }
+        scaleBarHtml += '</div>';
+
         const northArrowSvg = document.querySelector('.leaflet-control-north').innerHTML;
 
+        // This is where the new professional layout is constructed.
         printContainer.innerHTML = `
-            <div class="print-map-wrapper">
-                <img id="print-map-image" src="${mapImageUrl}" />
-                <div id="print-north-arrow">${northArrowSvg}</div>
-                <div id="print-scale-bar" style="width: ${scaleWidth};">
-                    <div class="scale-bar-segment"></div><div class="scale-bar-segment"></div>
-                    <div class="scale-bar-label">${scaleLabel}</div>
+            <div class="print-page">
+                <div class="print-header">
+                    <div class="gzd-box">
+                        <p class="gzd-title">GRID ZONE DESIGNATION</p>
+                        <p class="gzd-value">${gzd}</p>
+                    </div>
+                    <div class="print-title">
+                        LAGEKARTE
+                    </div>
+                     <div class="print-info">
+                        <p>Datum: WGS 84</p>
+                        <p>Gedruckt am: ${new Date().toLocaleString('de-DE')}</p>
+                    </div>
                 </div>
-            </div>
-            <div class="print-footer">
-                <div class="print-info"><p>${coordsInfo}</p><p>Gedruckt am: ${new Date().toLocaleString('de-DE')}</p></div>
+
+                <div class="map-frame">
+                    <div class="map-content">
+                        <img id="print-map-image" src="${mapImageUrl}">
+                        <div id="print-north-arrow">${northArrowSvg}</div>
+                        <div class="grid-labels">
+                            ${generateMarginalia(map)}
+                        </div>
+                    </div>
+                </div>
+
+                <div class="print-footer">
+                    <div class="print-info">
+                        <p>Erstellt mit MGRS-Kartenwerkzeug</p>
+                    </div>
+                    <div class="graphical-scale">
+                        ${scaleBarHtml}
+                        <div class="scale-label">${scaleText}</div>
+                    </div>
+                    <div class="print-info" style="text-align: right;">
+                        <p>Maßstab ca. 1:${(1 / (map.getResolution().x * 96 * 39.37)).toFixed(0)}</p>
+                    </div>
+                </div>
             </div>`;
 
         printContainer.style.display = 'block';
 
-        // Use a short timeout to ensure the browser has rendered the print-container content
         setTimeout(() => {
             window.print();
         }, 500);
@@ -487,10 +569,8 @@ async function printMap() {
         console.error('Printing failed:', error);
         alert('Fehler beim Erstellen der Druckvorschau: ' + error.message);
     } finally {
-        // Clean up after printing
         document.body.classList.remove('printing', printClass);
         printContainer.style.display = 'none';
-        // Redraw the map in its normal view
         map.invalidateSize();
     }
 }

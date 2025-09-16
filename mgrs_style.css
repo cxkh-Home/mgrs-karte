@@ -97,13 +97,13 @@ body, html {
 @media print {
     @page {
         size: A4 portrait;
-        margin: 0.5cm;
+        margin: 0; /* Remove default margin */
     }
 
     body.print-a3 {
         @page {
             size: A3 portrait;
-            margin: 0.5cm;
+            margin: 0;
         }
     }
 
@@ -112,6 +112,7 @@ body, html {
         width: 100%;
         margin: 0;
         padding: 0;
+        background-color: white; /* Ensure background is white */
     }
 
     /* Hide the main application and show only the print container */
@@ -120,11 +121,9 @@ body, html {
     }
 
     #print-container {
-        display: flex !important;
-        flex-direction: column;
-        height: 100%;
+        display: block !important;
         width: 100%;
-        box-sizing: border-box;
+        height: 100%;
     }
 
     /* Hide the loading overlay when printing */
@@ -133,53 +132,141 @@ body, html {
     }
 }
 
+/* New Print Layout Styles */
 #print-container {
-    font-family: Arial, sans-serif;
-    color: #333;
-    display: none; /* Hidden by default, shown by JS */
+    display: none; /* Hidden by default */
+    font-family: 'Helvetica', 'Arial', sans-serif;
+    color: black;
 }
 
-.print-map-wrapper {
+.print-page {
+    width: 100%;
+    height: 100%;
+    box-sizing: border-box;
+    padding: 1.5cm; /* Margins for metadata */
+    display: flex;
+    flex-direction: column;
+}
+
+.print-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 10px;
+    flex-shrink: 0;
+}
+
+.gzd-box {
+    border: 1px solid black;
+    padding: 5px 10px;
+    text-align: center;
+}
+
+.gzd-box .gzd-title {
+    font-size: 10px;
+    font-weight: bold;
+    margin: 0;
+    padding: 0;
+}
+
+.gzd-box .gzd-value {
+    font-size: 24px;
+    font-weight: bold;
+    margin: 0;
+    padding: 0;
+}
+
+.print-title {
+    text-align: center;
+    font-size: 18px;
+    font-weight: bold;
+}
+
+.map-frame {
+    flex-grow: 1;
+    border: 2px solid black;
+    position: relative; /* For positioning grid labels */
+    display: flex;
+}
+
+.map-content {
+    width: 100%;
+    height: 100%;
     position: relative;
-    margin-bottom: 20px;
-    border: 1px solid #ccc;
 }
 
 #print-map-image {
     width: 100%;
+    height: 100%;
+    display: block;
+}
+
+.grid-labels {
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    pointer-events: none; /* Don't interfere with map clicks if ever interactive */
+}
+
+.grid-label {
+    position: absolute;
+    font-size: 10px;
+    color: black;
+    font-weight: bold;
+}
+
+.print-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    margin-top: 10px;
+    flex-shrink: 0;
+}
+
+.print-info {
+    font-size: 10px;
+}
+
+.graphical-scale {
+    text-align: center;
+}
+
+.scale-bar {
+    display: inline-block;
+    border: 1px solid black;
+    height: 10px;
+    display: flex;
+}
+
+.scale-bar-segment {
+    height: 100%;
+    border-right: 1px solid black;
+    box-sizing: border-box;
+}
+
+.scale-bar-segment:last-child {
+    border-right: none;
+}
+
+.scale-bar-segment.dark { background-color: black; }
+.scale-bar-segment.light { background-color: white; }
+
+.scale-label {
+    font-size: 12px;
+    margin-top: 2px;
 }
 
 #print-north-arrow {
     position: absolute;
-    top: 20px;
-    right: 20px;
+    top: 10px;
+    right: 10px;
     width: 50px;
     height: 50px;
-    background: rgba(255, 255, 255, 0.7);
-    border-radius: 50%;
-    padding: 5px;
+    z-index: 10;
 }
 
 #print-north-arrow svg {
     width: 100%;
     height: 100%;
-}
-
-#print-scale-bar {
-    position: absolute;
-    bottom: 20px;
-    left: 20px;
-    background: rgba(255, 255, 255, 0.8);
-    padding: 2px 5px;
-    border: 1px solid #333;
-    border-top: 2px solid #333;
-}
-
-.print-info h2 {
-    font-size: 16px;
-    border-bottom: 1px solid #ccc;
-    padding-bottom: 5px;
-    margin-top: 0;
 }
 
 body.printing::after {
