@@ -199,6 +199,8 @@ body, html {
     width: 100%;
     height: 100%;
     display: block;
+    /* The object-fit property is removed to allow the image to fill the container,
+       as the aspect ratio is already corrected by the javascript. */
 }
 
 .grid-labels {

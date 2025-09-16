@@ -1,6 +1,5 @@
 let currentMarker;
 let map;
-let editableLayers;
 
 // --- Base Layers ---
 const osmLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -289,56 +288,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
     // Set up event listeners that depend on the map
     map.on('move', updateLocationDisplay);
-    // map.on('click', (e) => showOnMap(e.latlng.lat, e.latlng.lng)); // Disable to allow drawing
-
-    // Initialize Geoman Drawing Tools
-    editableLayers = new L.FeatureGroup();
-    map.addLayer(editableLayers);
-
-    // Note: Measurement tools are enabled by default in Geoman
-    map.pm.addControls({
-        position: 'topleft',
-        drawCircle: false, // Circle drawing is not required for this use case
-        drawCircleMarker: false,
-    });
-
-    // Add drawn layers to our feature group and add a click listener for labeling
-    map.on('pm:create', (e) => {
-        const layer = e.layer;
-        editableLayers.addLayer(layer);
-
-        // Only add the click-to-label functionality for Markers.
-        if (layer instanceof L.Marker) {
-            layer.on('click', () => {
-                // If in delete or edit mode, let Geoman handle the click.
-                if (map.pm.globalRemovalModeEnabled() || map.pm.globalEditModeEnabled()) {
-                    return;
-                }
-
-                const label = prompt("Enter label for this marker:");
-                if (label === null) { // User cancelled
-                    return;
-                }
-
-                if (label) {
-                    // If there's an existing tooltip, unbind it first.
-                    if (layer.getTooltip()) {
-                        layer.unbindTooltip();
-                    }
-                    layer.bindTooltip(label, {
-                        permanent: true,
-                        direction: 'center',
-                        className: 'feature-label'
-                    }).openTooltip();
-                } else {
-                    // If the user enters an empty label, remove any existing tooltip.
-                    if (layer.getTooltip()) {
-                        layer.unbindTooltip();
-                    }
-                }
-            });
-        }
-    });
+    map.on('click', (e) => showOnMap(e.latlng.lat, e.latlng.lng));
 
     // Initialize other components
     initProjections();
@@ -379,110 +329,64 @@ document.addEventListener('DOMContentLoaded', function() {
  * @param {object} overlayMaps The overlayMaps object from the layer control.
  * @returns {Promise<void>} A promise that resolves when all grid layers are ready.
  */
+
+
 function waitForLayers(mapInstance, overlayMaps) {
     const activeGridLayers = [];
-
-    // Find active overlay layers that are MGRS grids
     for (const key in overlayMaps) {
         if (mapInstance.hasLayer(overlayMaps[key])) {
             activeGridLayers.push(overlayMaps[key]);
         }
     }
 
-    // If no grid layers are active, we don't need to wait for anything.
     if (activeGridLayers.length === 0) {
         return Promise.resolve();
     }
 
-    const promises = activeGridLayers.map(layer => {
+    const layerPromises = activeGridLayers.map(layer => {
         return new Promise((resolve, reject) => {
-            const timer = setTimeout(() => reject(new Error('MGRS grid layer render timed out.')), 10000);
+            // Attach listener first
+            layer.once('rendercomplete', () => {
+                // Once the layer has added all its children, we wait for the next
+                // browser paint cycle to ensure they are visible in the DOM.
+                requestAnimationFrame(() => {
+                    resolve();
+                });
+            });
 
-            if (layer.options && typeof layer.getInBoundsGZDs === 'function') { // GZD Layer
-                layer.once('rendercomplete', () => { clearTimeout(timer); resolve(); });
-                layer.getInBoundsGZDs(true); // force=true
-            } else if (layer.options && typeof layer.getVizGrids === 'function') { // 100k Layer
-                layer.once('rendercomplete', () => { clearTimeout(timer); resolve(); });
-                layer.getVizGrids(true); // force=true
-            } else if (layer.options && typeof layer.regenerate === 'function') { // 1000m & 100m Layers
-                layer.once('rendercomplete', () => { clearTimeout(timer); resolve(); });
-                layer.regenerate(true); // force=true
+            // Then, trigger the redraw
+            if (layer.options && typeof layer.getInBoundsGZDs === 'function') {
+                layer.getInBoundsGZDs(true);
+            } else if (layer.options && typeof layer.getVizGrids === 'function') {
+                layer.getVizGrids(true);
+            } else if (layer.options && typeof layer.regenerate === 'function') {
+                layer.regenerate(true);
             } else {
-                // This case should not be hit if we only push valid MGRS grid layers
-                clearTimeout(timer);
-                resolve();
+                // If it's not a known grid layer, resolve immediately.
+                layer.fire('rendercomplete');
             }
         });
     });
 
-    return Promise.all(promises);
-}
+    // A master timeout for the entire operation
+    const timeoutPromise = new Promise((_, reject) => {
+        const id = setTimeout(() => {
+            clearTimeout(id);
+            reject(new Error('Gesamtes Layer-Rendering hat zu lange gedauert.'));
+        }, 10000); // 10-second overall timeout
+    });
 
-
-function generateMarginalia(map, gridInterval = 1000) {
-    const bounds = map.getBounds();
-    const sw = bounds.getSouthWest();
-    const ne = bounds.getNorthEast();
-
-    // Convert corner coordinates to UTM
-    const swUtm = LLtoUTM({ lat: sw.lat, lon: sw.lng });
-    const neUtm = LLtoUTM({ lat: ne.lat, lon: ne.lng });
-
-    // Important: We need a consistent zone for calculation across the map view.
-    // We'll use the zone of the map's center.
-    const centerUtm = LLtoUTM(map.getCenter());
-    const zone = centerUtm.zoneNumber;
-    const zoneLetter = centerUtm.zoneLetter;
-
-    let labelsHtml = '';
-    const mapSize = map.getSize(); // The pixel dimensions of the map container
-
-    // --- Generate Easting (Vertical) Grid Labels ---
-    const firstEasting = Math.floor(swUtm.easting / gridInterval) * gridInterval;
-    for (let e = firstEasting; e <= neUtm.easting; e += gridInterval) {
-        const topPoint = UTMtoLL({easting: e, northing: neUtm.northing, zoneNumber: zone, zoneLetter: zoneLetter});
-        if (!topPoint || isNaN(topPoint.lat) || isNaN(topPoint.lon)) continue;
-
-        const bottomPoint = UTMtoLL({easting: e, northing: swUtm.northing, zoneNumber: zone, zoneLetter: zoneLetter});
-        if (!bottomPoint || isNaN(bottomPoint.lat) || isNaN(bottomPoint.lon)) continue;
-
-        if (bounds.contains(topPoint) || bounds.contains(bottomPoint)) {
-            const labelText = (e / 1000).toString();
-            const pos = map.latLngToContainerPoint(topPoint);
-            if (isNaN(pos.x) || isNaN(pos.y)) continue;
-
-            labelsHtml += `<div class="grid-label" style="left: ${pos.x}px; top: -1.2em;">${labelText.slice(-2)}</div>`;
-            labelsHtml += `<div class="grid-label" style="left: ${pos.x}px; bottom: -1.2em;">${labelText.slice(-2)}</div>`;
-        }
-    }
-
-    // --- Generate Northing (Horizontal) Grid Labels ---
-    const firstNorthing = Math.floor(swUtm.northing / gridInterval) * gridInterval;
-     for (let n = firstNorthing; n <= neUtm.northing; n += gridInterval) {
-        const leftPoint = UTMtoLL({easting: swUtm.easting, northing: n, zoneNumber: zone, zoneLetter: zoneLetter});
-        if (!leftPoint || isNaN(leftPoint.lat) || isNaN(leftPoint.lon)) continue;
-
-        const rightPoint = UTMtoLL({easting: neUtm.easting, northing: n, zoneNumber: zone, zoneLetter: zoneLetter});
-        if (!rightPoint || isNaN(rightPoint.lat) || isNaN(rightPoint.lon)) continue;
-
-        if (bounds.contains(leftPoint) || bounds.contains(rightPoint)) {
-            const labelText = (n / 1000).toString();
-            const pos = map.latLngToContainerPoint(leftPoint);
-            if (isNaN(pos.x) || isNaN(pos.y)) continue;
-
-            labelsHtml += `<div class="grid-label" style="top: ${pos.y}px; left: -2em;">${labelText.slice(-2)}</div>`;
-            labelsHtml += `<div class="grid-label" style="top: ${pos.y}px; right: -2em;">${labelText.slice(-2)}</div>`;
-        }
-    }
-
-    return labelsHtml;
+    return Promise.race([
+        Promise.all(layerPromises),
+        timeoutPromise
+    ]);
 }
 
 async function printMap() {
     const printContainer = document.getElementById('print-container');
     const mapElement = document.getElementById('map');
     const paperSize = 'a4';
-    const printClass = `print-a4`; // Simplified, can be extended later
+    const printClass = `print-a4`;
 
     const originalView = {
         center: map.getCenter(),
@@ -491,7 +395,6 @@ async function printMap() {
 
     document.body.classList.add('printing', printClass);
 
-    // This function measures the print frame's aspect ratio.
     const measureFrame = () => new Promise((resolve, reject) => {
         printContainer.innerHTML = '<div class="print-page"><div class="map-frame"></div></div>';
         printContainer.style.display = 'block';
@@ -503,16 +406,15 @@ async function printMap() {
                 reject(new Error("Could not determine print frame size."));
                 return;
             }
-            resolve(mapFrame.clientWidth / mapFrame.clientHeight);
+            const aspectRatio = mapFrame.clientWidth / mapFrame.clientHeight;
+            resolve(aspectRatio);
         });
     });
 
     try {
         const targetAspectRatio = await measureFrame();
 
-        // Adjust map bounds to fit the target aspect ratio
         const currentBounds = map.getBounds();
-        const center = currentBounds.getCenter();
         let north = currentBounds.getNorth(), south = currentBounds.getSouth();
         let east = currentBounds.getEast(), west = currentBounds.getWest();
         const currentAspectRatio = (east - west) / (north - south);
@@ -535,24 +437,20 @@ async function printMap() {
         map.fitBounds(adjustedBounds, { animate: false, padding: [0,0] });
         map.invalidateSize();
 
-        // Wait for layers and capture the map
         const overlayMaps = {
             "GZD Gitter": generateGZDGrids, "100km Gitter": generate100kGrids,
             "1000m Gitter": generate1000meterGrids, "100m Gitter": generate100meterGrids
         };
         await waitForLayers(map, overlayMaps);
+
         const canvas = await html2canvas(mapElement, { useCORS: true, logging: false, scale: 3 });
         const mapImageUrl = canvas.toDataURL('image/png');
 
-        // Restore view immediately after capture, before building final HTML
-        map.setView(originalView.center, originalView.zoom, { animate: false });
-
-        // Build final print layout
+        const center = map.getCenter();
         const gzd = mgrs.forward([center.lng, center.lat]).substring(0, 3);
         const scaleText = document.querySelector('.leaflet-control-scale-line')?.innerText || '1 km';
         let scaleBarHtml = '<div class="scale-bar">' + Array(4).fill(0).map((_, i) => `<div class="scale-bar-segment ${i % 2 === 0 ? 'dark' : 'light'}"></div>`).join('') + '</div>';
-        const northArrowSvg = document.querySelector('.leaflet-control-north').innerHTML;
-        const marginaliaHtml = generateMarginalia(map);
+        const northArrowSvg = document.querySelector('.leaflet-control-north')?.innerHTML || '';
 
         printContainer.innerHTML = `
             <div class="print-page">
@@ -565,26 +463,33 @@ async function printMap() {
                     <div class="map-content">
                         <img id="print-map-image" src="${mapImageUrl}">
                         <div id="print-north-arrow">${northArrowSvg}</div>
-                        <div class="grid-labels">${marginaliaHtml}</div>
                     </div>
                 </div>
                 <div class="print-footer">
-                    <div class="print-info"><p>MGRS-Kartenwerkzeug</p></div>
-                    <div class="graphical-scale">${scaleBarHtml}<div class="scale-label">${scaleText}</div></div>
-                    <div class="print-info"></div>
+                     <div class="graphical-scale">
+                        ${scaleBarHtml}
+                        <div class="scale-label">${scaleText}</div>
+                    </div>
                 </div>
             </div>`;
 
         printContainer.style.display = 'block';
         printContainer.style.visibility = 'visible';
 
-        setTimeout(() => window.print(), 500);
+        const printImage = document.getElementById('print-map-image');
+        if (printImage.complete) {
+            window.print();
+        } else {
+            printImage.onload = () => {
+                window.print();
+            };
+        }
 
     } catch (error) {
         console.error('Printing failed:', error);
         alert('Fehler beim Erstellen der Druckvorschau: ' + error.message);
     } finally {
-        // Final cleanup
+        map.setView(originalView.center, originalView.zoom, { animate: false });
         document.body.classList.remove('printing', printClass);
         printContainer.style.display = 'none';
         map.invalidateSize();
